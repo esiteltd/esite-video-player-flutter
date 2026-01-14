@@ -16,6 +16,10 @@ class EsSiteFlutterPlayerPlugin : FlutterPlugin {
         channel = MethodChannel(binding.binaryMessenger, "esite_flutter_player/methods")
         player = NativePlayer(context)
 
+        binding.platformViewRegistry.registerViewFactory(
+            "esite_flutter_player/view",
+            ESitePlayerViewFactory(player)
+        )
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "initialize" -> {

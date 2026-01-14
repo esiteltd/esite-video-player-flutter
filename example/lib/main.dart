@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:esite_flutter_player/esite_flutter_player.dart';
 
 void main() {
   runApp(const MyApp());
@@ -9,16 +10,15 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
-      home: Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(
-          child: Text(
-            'ESite Flutter Player Example',
-            style: TextStyle(color: Colors.white),
-          ),
+    final controller = ESitePlayerController(
+      ESitePlayerConfig(
+        sourceUrl: 'https://example.com/stream.mpd',
+        drm: ESiteDrmConfig(
+          licenseUrl: 'https://license.example.com',
+          scheme: ESiteDrmScheme.widevine,
         ),
       ),
+      platform: throw UnimplementedError(), // wired in Phase 4
     );
   }
 }

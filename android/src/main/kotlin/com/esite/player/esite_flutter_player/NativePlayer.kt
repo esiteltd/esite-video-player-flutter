@@ -13,6 +13,8 @@ class NativePlayer(private val context: Context) {
 
     private var player: ExoPlayer? = null
 
+    fun getPlayer(): ExoPlayer? = player
+
     fun initialize(args: Map<String, Any>) {
         val sourceUrl = args["sourceUrl"] as String
         val drm = args["drm"] as Map<String, Any>
