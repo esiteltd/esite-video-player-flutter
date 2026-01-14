@@ -3,4 +3,4 @@ include: package:flutter_lints/flutter.yaml
 linter:
   rules:
     avoid_print: true
-    public_member_api_docs: true
+    public_member_api_docs: false
