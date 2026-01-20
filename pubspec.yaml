@@ -1,8 +1,7 @@
 name: esite_flutter_player
-description: Secure DRM-enabled video playback plugin for Flutter using Android Media3 ExoPlayer
+description: Secure DRM-enabled video playback plugin for Flutter using Android Media3 ExoPlayer with Widevine DRM support.
 version: 0.1.0
-
-# homepage: 
+repository: https://github.com/yourusername/esite_flutter_player
 
 environment:
   sdk: ^3.10.4

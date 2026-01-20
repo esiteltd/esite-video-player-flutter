@@ -1,16 +1,43 @@
-# esite_flutter_player_example
+# eSite Flutter Player Example
 
-Demonstrates how to use the esite_flutter_player plugin.
+This example demonstrates all features of the eSite Flutter Player plugin.
 
-## Getting Started
+## Features Demonstrated
 
-This project is a starting point for a Flutter application.
+- DRM-protected video playback with Axinom test content
+- Screenshot and screen recording protection
+- Playback controls (play, pause, seek forward/backward)
+- Playback speed control (0.5x to 4.0x)
+- Volume control and mute
+- Video quality track selection
+- Real-time state monitoring
+- DRM event notifications
+- Error handling
 
-A few resources to get you started if this is your first Flutter project:
+## Running the Example
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+1. Connect a physical Android device (DRM may not work on emulators)
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+2. Run the app:
+   ```bash
+   flutter run
+   ```
+
+3. The app will load Axinom test content automatically
+
+## Test Content
+
+The example uses publicly available Axinom DRM test vectors:
+- **Source**: 1080p DASH stream
+- **DRM**: Widevine with test license
+- **Security**: Screenshot protection enabled
+
+## Notes
+
+- Requires a physical Android device with Widevine L1 or L3 support
+- Emulators typically don't support DRM playback
+- Network connectivity required for streaming
+
+## Learn More
+
+See the main [README](../README.md) and [documentation](../doc/) for complete API reference and usage guide.
