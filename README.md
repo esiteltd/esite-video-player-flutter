@@ -149,6 +149,8 @@ See the [example app](example/lib/main.dart) for a full implementation with:
 - 📘 [Getting Started Guide](doc/getting_started.md) - Step-by-step setup and usage
 - 📗 [API Reference](doc/api_reference.md) - Complete API documentation
 - 🔒 [Security Notes](doc/security.md) - Security best practices and DRM details
+- 🧪 [Test Plan](TEST_PLAN.md) - Comprehensive testing strategy and test cases
+- ✅ [Test Checklist](TEST_CHECKLIST.md) - Quick reference for test execution
 
 ## Security Features
 
@@ -289,6 +291,62 @@ DRM-protected content may not work on Android emulators due to:
 ### iOS Support
 
 iOS support is planned for a future release. The plugin currently throws `UnsupportedError` on iOS.
+
+## Testing
+
+This plugin includes comprehensive test coverage across multiple levels:
+
+### Running Tests
+
+```bash
+# Run all unit tests
+flutter test
+
+# Run with coverage report
+flutter test --coverage
+
+# Run integration tests (requires device/emulator)
+cd example
+flutter test integration_test/
+
+# Run Android native tests
+cd example/android
+./gradlew test
+
+# Generate HTML coverage report
+genhtml coverage/lcov.info -o coverage/html
+open coverage/html/index.html
+```
+
+### Test Coverage
+
+The plugin maintains high test coverage across:
+- ✅ **Unit Tests** (70%): Controller, configuration, events, platform layer
+- ✅ **Widget Tests** (20%): Player view and UI components
+- ✅ **Integration Tests** (10%): End-to-end playback, DRM, security
+
+**Coverage Goals:**
+- Overall: >85%
+- Controller: >95%
+- Configuration: 100%
+- Events/Errors: 100%
+
+### Test Documentation
+
+For detailed testing information, see:
+- [Test Plan](TEST_PLAN.md) - Complete testing strategy with all test cases
+- [Test Checklist](TEST_CHECKLIST.md) - Quick reference for test execution
+
+### Test Categories
+
+1. **Configuration Tests**: Player and DRM configuration validation
+2. **Controller Tests**: Playback control, state management, streams
+3. **Platform Tests**: Method channel and event channel communication
+4. **Widget Tests**: UI component rendering
+5. **Integration Tests**: Complete workflows, DRM license acquisition, security
+6. **Native Tests**: Android ExoPlayer and SecurityManager
+7. **Error Handling**: All error scenarios and recovery
+8. **Edge Cases**: Boundary conditions and unusual inputs
 
 ## Troubleshooting
 
