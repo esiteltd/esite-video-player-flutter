@@ -2,6 +2,22 @@
 
 A secure, production-ready Flutter plugin for DRM-protected video playback on Android using Media3 ExoPlayer with Widevine DRM support.
 
+## 🚀 Quick Start - Testing the Example
+
+**The example app includes 7 comprehensive test scenarios!** To run it:
+
+```bash
+cd example
+flutter clean && rm -rf build/ .dart_tool/ android/.gradle/
+flutter pub get
+flutter run
+```
+
+Then tap **"✅ Valid Auth (Should Work)"** to test DRM-protected video playback!
+
+📖 **See [QUICK_START.md](QUICK_START.md) for detailed instructions**
+📊 **See [CHANGES_SUMMARY.md](CHANGES_SUMMARY.md) for recent updates**
+
 ## Features
 
 - ✅ **DRM Support**: Widevine DRM via Axinom integration

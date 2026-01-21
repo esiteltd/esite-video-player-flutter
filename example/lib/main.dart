@@ -18,6 +18,38 @@ class MyApp extends StatelessWidget {
   }
 }
 
+// Test scenarios with different authentication and access states
+enum TestScenario {
+  validAuth,
+  expiredAuth,
+  invalidAuth,
+  noAuth,
+  wrongScheme,
+  networkError,
+  invalidUrl,
+}
+
+extension TestScenarioExtension on TestScenario {
+  String get description {
+    switch (this) {
+      case TestScenario.validAuth:
+        return '✅ Valid Auth (Should Work)';
+      case TestScenario.expiredAuth:
+        return '❌ Expired Token (DRM Error)';
+      case TestScenario.invalidAuth:
+        return '❌ Invalid License URL (Network Error)';
+      case TestScenario.noAuth:
+        return '❌ Missing Auth Header (DRM Error)';
+      case TestScenario.wrongScheme:
+        return '❌ Wrong DRM Scheme (Error)';
+      case TestScenario.networkError:
+        return '❌ Network Error (Invalid Domain)';
+      case TestScenario.invalidUrl:
+        return '❌ Invalid URL Format (Error)';
+    }
+  }
+}
+
 class PlayerDemoPage extends StatefulWidget {
   const PlayerDemoPage({super.key});
 
@@ -26,7 +58,7 @@ class PlayerDemoPage extends StatefulWidget {
 }
 
 class _PlayerDemoPageState extends State<PlayerDemoPage> {
-  late final ESitePlayerController controller;
+  ESitePlayerController? controller;
   ESitePlayerState _currentState = ESitePlayerState.idle;
   String? _errorMessage;
   bool _isMuted = false;
@@ -34,41 +66,60 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
   double _playbackSpeed = 1.0;
   List<Map<String, dynamic>> _videoTracks = [];
   String? _selectedTrackId;
+  TestScenario? _currentScenario;
+  bool _isPlayerInitialized = false;
+  final List<String> _eventLog = [];
 
   @override
   void initState() {
     super.initState();
-    _initializePlayer();
+    // Don't auto-initialize - let user select scenario first
   }
 
-  void _initializePlayer() {
-    controller = ESitePlayerController(
-      ESitePlayerConfig(
-        sourceUrl:
-            'https://media.axprod.net/TestVectors/v7-MultiDRM-SingleKey/Manifest_1080p.mpd',
-        drm: ESiteDrmConfig(
-          licenseUrl:
-              'https://drm-widevine-licensing.axtest.net/AcquireLicense',
-          scheme: ESiteDrmScheme.widevine,
-          licenseHeaders: {
-            'X-AxDRM-Message':
-                'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ2ZXJzaW9uIjoxLCJjb21fa2V5X2lkIjoiYjMzNjRlYjUtNTFmNi00YWUzLThjOTgtMzNjZWQ1ZTMxYzc4IiwibWVzc2FnZSI6eyJ0eXBlIjoiZW50aXRsZW1lbnRfbWVzc2FnZSIsImtleXMiOlt7ImlkIjoiOWViNDA1MGQtZTQ0Yi00ODAyLTkzMmUtMjdkNzUwODNlMjY2IiwiZW5jcnlwdGVkX2tleSI6ImxLM09qSExZVzI0Y3Rkbmd5VmRkY2c9PSJ9XX19.4Adl1Qd9Br5n_UCFU-MnpLm3bNJIRrCmCeIxqZqnUNQ',
-          },
-        ),
-        autoPlay: false,
-        preventScreenshots: true,
-        preventScreenRecording: true,
-      ),
-    );
+  void _addToLog(String message) {
+    if (!mounted) return;
+    setState(() {
+      _eventLog.insert(
+        0,
+        '${DateTime.now().toString().substring(11, 19)} - $message',
+      );
+      if (_eventLog.length > 50) {
+        _eventLog.removeLast();
+      }
+    });
+  }
 
-    controller.initialize();
+  void _initializePlayer(TestScenario scenario) {
+    // Dispose existing controller if any
+    controller?.dispose();
 
-    controller.stateStream.listen((state) {
+    setState(() {
+      _currentScenario = scenario;
+      _errorMessage = null;
+      _currentState = ESitePlayerState.idle;
+      _isPlayerInitialized = false;
+      _videoTracks = [];
+      _selectedTrackId = null;
+      _eventLog.clear();
+    });
+
+    _addToLog('Initializing player with scenario: ${scenario.name}');
+
+    final config = _getConfigForScenario(scenario);
+    controller = ESitePlayerController(config);
+
+    controller!.initialize();
+
+    setState(() {
+      _isPlayerInitialized = true;
+    });
+
+    controller!.stateStream.listen((state) {
       if (mounted) {
         setState(() {
           _currentState = state;
         });
-        debugPrint('Player state: $state');
+        _addToLog('State changed: ${state.name}');
 
         if (state == ESitePlayerState.ready) {
           _loadVideoTracks();
@@ -76,20 +127,23 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
       }
     });
 
-    controller.drmStream.listen((event) {
-      debugPrint('DRM event: ${event.type} - ${event.message ?? ''}');
+    controller!.drmStream.listen((event) {
+      _addToLog('DRM event: ${event.type.name} - ${event.message ?? ''}');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('DRM: ${event.type.name}'),
             duration: const Duration(seconds: 2),
+            backgroundColor: event.type == ESiteDrmEventType.licenseFailed
+                ? Colors.red
+                : Colors.blue,
           ),
         );
       }
     });
 
-    controller.errorStream.listen((error) {
-      debugPrint('Player error: ${error.code} - ${error.message}');
+    controller!.errorStream.listen((error) {
+      _addToLog('Error: ${error.code.name} - ${error.message}');
       if (mounted) {
         setState(() {
           _errorMessage = '${error.code.name}: ${error.message}';
@@ -98,29 +152,146 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
           SnackBar(
             content: Text('Error: ${error.message}'),
             backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
+            duration: const Duration(seconds: 4),
           ),
         );
       }
     });
   }
 
+  ESitePlayerConfig _getConfigForScenario(TestScenario scenario) {
+    switch (scenario) {
+      case TestScenario.validAuth:
+        // Valid authentication token - should work (Axinom v10 CMAF test content)
+        return ESitePlayerConfig(
+          sourceUrl:
+              'https://media.axprod.net/TestVectors/Cmaf/protected_1080p_h264_cbcs/manifest.mpd',
+          drm: ESiteDrmConfig(
+            licenseUrl:
+                'https://drm-widevine-licensing.axprod.net/AcquireLicense?AxDrmMessage=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ewogICJ2ZXJzaW9uIjogMSwKICAiY29tX2tleV9pZCI6ICI2OWU1NDA4OC1lOWUwLTQ1MzAtOGMxYS0xZWI2ZGNkMGQxNGUiLAogICJtZXNzYWdlIjogewogICAgInR5cGUiOiAiZW50aXRsZW1lbnRfbWVzc2FnZSIsCiAgICAidmVyc2lvbiI6IDIsCiAgICAibGljZW5zZSI6IHsKICAgICAgImFsbG93X3BlcnNpc3RlbmNlIjogdHJ1ZQogICAgfSwKICAgICJjb250ZW50X2tleXNfc291cmNlIjogewogICAgICAiaW5saW5lIjogWwogICAgICAgIHsKICAgICAgICAgICJpZCI6ICIzMDJmODBkZC00MTFlLTQ4ODYtYmNhNS1iYjFmODAxOGEwMjQiLAogICAgICAgICAgImVuY3J5cHRlZF9rZXkiOiAicm9LQWcwdDdKaTFpNDNmd3YremZ0UT09IiwKICAgICAgICAgICJ1c2FnZV9wb2xpY3kiOiAiUG9saWN5IEEiCiAgICAgICAgfQogICAgICBdCiAgICB9LAogICAgImNvbnRlbnRfa2V5X3VzYWdlX3BvbGljaWVzIjogWwogICAgICB7CiAgICAgICAgIm5hbWUiOiAiUG9saWN5IEEiLAogICAgICAgICJwbGF5cmVhZHkiOiB7CiAgICAgICAgICAibWluX2RldmljZV9zZWN1cml0eV9sZXZlbCI6IDE1MCwKICAgICAgICAgICJwbGF5X2VuYWJsZXJzIjogWwogICAgICAgICAgICAiNzg2NjI3RDgtQzJBNi00NEJFLThGODgtMDhBRTI1NUIwMUE3IgogICAgICAgICAgXQogICAgICAgIH0KICAgICAgfQogICAgXQogIH0KfQ._NfhLVY7S6k8TJDWPeMPhUawhympnrk6WAZHOVjER6M',
+            scheme: ESiteDrmScheme.widevine,
+            licenseHeaders: {}, // Token is in the URL query parameter
+          ),
+          autoPlay: false,
+          preventScreenshots: true,
+          preventScreenRecording: true,
+        );
+
+      case TestScenario.expiredAuth:
+        // Expired or invalid token - should fail with DRM error
+        return ESitePlayerConfig(
+          sourceUrl:
+              'https://media.axprod.net/TestVectors/v7-MultiDRM-SingleKey/Manifest_1080p.mpd',
+          drm: ESiteDrmConfig(
+            licenseUrl:
+                'https://drm-widevine-licensing.axtest.net/AcquireLicense',
+            scheme: ESiteDrmScheme.widevine,
+            licenseHeaders: {
+              'X-AxDRM-Message': 'expired_or_invalid_token_here',
+            },
+          ),
+          autoPlay: false,
+          preventScreenshots: true,
+          preventScreenRecording: true,
+        );
+
+      case TestScenario.invalidAuth:
+        // Wrong license URL - should fail
+        return ESitePlayerConfig(
+          sourceUrl:
+              'https://media.axprod.net/TestVectors/v7-MultiDRM-SingleKey/Manifest_1080p.mpd',
+          drm: ESiteDrmConfig(
+            licenseUrl: 'https://invalid-drm-server.example.com/license',
+            scheme: ESiteDrmScheme.widevine,
+            licenseHeaders: {'X-AxDRM-Message': 'some_token'},
+          ),
+          autoPlay: false,
+          preventScreenshots: true,
+          preventScreenRecording: true,
+        );
+
+      case TestScenario.noAuth:
+        // Missing authentication header - should fail
+        return ESitePlayerConfig(
+          sourceUrl:
+              'https://media.axprod.net/TestVectors/v7-MultiDRM-SingleKey/Manifest_1080p.mpd',
+          drm: ESiteDrmConfig(
+            licenseUrl:
+                'https://drm-widevine-licensing.axtest.net/AcquireLicense',
+            scheme: ESiteDrmScheme.widevine,
+            licenseHeaders: {}, // No auth headers
+          ),
+          autoPlay: false,
+          preventScreenshots: true,
+          preventScreenRecording: true,
+        );
+
+      case TestScenario.wrongScheme:
+        // Wrong DRM scheme - should fail
+        return ESitePlayerConfig(
+          sourceUrl:
+              'https://media.axprod.net/TestVectors/v7-MultiDRM-SingleKey/Manifest_1080p.mpd',
+          drm: ESiteDrmConfig(
+            licenseUrl:
+                'https://drm-widevine-licensing.axtest.net/AcquireLicense',
+            scheme: ESiteDrmScheme.playready, // Wrong scheme for this content
+            licenseHeaders: {
+              'X-AxDRM-Message':
+                  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ2ZXJzaW9uIjoxLCJjb21fa2V5X2lkIjoiYjMzNjRlYjUtNTFmNi00YWUzLThjOTgtMzNjZWQ1ZTMxYzc4IiwibWVzc2FnZSI6eyJ0eXBlIjoiZW50aXRsZW1lbnRfbWVzc2FnZSIsImtleXMiOlt7ImlkIjoiOWViNDA1MGQtZTQ0Yi00ODAyLTkzMmUtMjdkNzUwODNlMjY2IiwiZW5jcnlwdGVkX2tleSI6ImxLM09qSExZVzI0Y3Rkbmd5VmRkY2c9PSJ9XX19.4Adl1Qd9Br5n_UCFU-MnpLm3bNJIRrCmCeIxqZqnUNQ',
+            },
+          ),
+          autoPlay: false,
+          preventScreenshots: true,
+          preventScreenRecording: true,
+        );
+
+      case TestScenario.networkError:
+        // Non-existent domain - should fail with network error
+        return ESitePlayerConfig(
+          sourceUrl: 'https://nonexistent-domain-test-12345.com/video.mpd',
+          drm: ESiteDrmConfig(
+            licenseUrl: 'https://nonexistent-domain-test-12345.com/license',
+            scheme: ESiteDrmScheme.widevine,
+            licenseHeaders: {'Authorization': 'Bearer token'},
+          ),
+          autoPlay: false,
+          preventScreenshots: true,
+          preventScreenRecording: true,
+        );
+
+      case TestScenario.invalidUrl:
+        // Malformed URL - should fail immediately
+        return ESitePlayerConfig(
+          sourceUrl: 'not-a-valid-url',
+          drm: ESiteDrmConfig(
+            licenseUrl: 'also-not-valid',
+            scheme: ESiteDrmScheme.widevine,
+            licenseHeaders: {},
+          ),
+          autoPlay: false,
+          preventScreenshots: true,
+          preventScreenRecording: true,
+        );
+    }
+  }
+
   Future<void> _loadVideoTracks() async {
     try {
-      final tracks = await controller.getAvailableVideoTracks();
+      final tracks = await controller!.getAvailableVideoTracks();
       if (mounted) {
         setState(() {
           _videoTracks = tracks;
         });
+        _addToLog('Loaded ${tracks.length} video tracks');
       }
     } catch (e) {
-      debugPrint('Failed to load video tracks: $e');
+      _addToLog('Failed to load video tracks: $e');
     }
   }
 
   @override
   void dispose() {
-    controller.dispose();
+    controller?.dispose();
     super.dispose();
   }
 
@@ -129,33 +300,11 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text('ESite Player Demo'),
+        title: const Text('ESite Player Test Suite'),
         actions: [
           IconButton(
             icon: const Icon(Icons.info_outline),
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('About'),
-                  content: const Text(
-                    'This demo shows DRM-protected video playback with:\n'
-                    '• Screenshot blocking (FLAG_SECURE)\n'
-                    '• Screen recording prevention\n'
-                    '• Playback controls\n'
-                    '• Track selection\n'
-                    '• Volume control\n'
-                    '\nNote: Replace URLs with your actual DRM content.',
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('OK'),
-                    ),
-                  ],
-                ),
-              );
-            },
+            onPressed: _showAboutDialog,
           ),
         ],
       ),
@@ -164,63 +313,130 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
           // Player View
           Expanded(
             flex: 3,
-            child: Container(
-              color: Colors.black,
-              child: _errorMessage != null
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.error_outline,
-                            color: Colors.red,
-                            size: 48,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            _errorMessage!,
-                            style: const TextStyle(color: Colors.red),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    )
-                  : ESitePlayerView(controller: controller),
-            ),
+            child: Container(color: Colors.black, child: _buildPlayerArea()),
           ),
 
           // Controls Panel
           Expanded(
-            flex: 2,
+            flex: 3,
             child: Container(
               color: Colors.grey[900],
-              padding: const EdgeInsets.all(16),
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+              child: _isPlayerInitialized
+                  ? _buildControlsPanel()
+                  : _buildScenarioSelector(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlayerArea() {
+    if (!_isPlayerInitialized) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.play_circle_outline, size: 64, color: Colors.grey),
+            SizedBox(height: 16),
+            Text(
+              'Select a test scenario below',
+              style: TextStyle(color: Colors.grey, fontSize: 16),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, color: Colors.red, size: 64),
+              const SizedBox(height: 16),
+              Text(
+                _errorMessage!,
+                style: const TextStyle(color: Colors.red, fontSize: 14),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _isPlayerInitialized = false;
+                    _currentScenario = null;
+                  });
+                  controller?.dispose();
+                },
+                icon: const Icon(Icons.refresh),
+                label: const Text('Try Another Scenario'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return controller != null
+        ? ESitePlayerView(controller: controller!)
+        : const Center(child: CircularProgressIndicator());
+  }
+
+  Widget _buildScenarioSelector() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            '🧪 Test Scenarios',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Select a scenario to test different authentication and error states:',
+            style: TextStyle(color: Colors.grey),
+          ),
+          const SizedBox(height: 16),
+          ...TestScenario.values.map(
+            (scenario) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: ElevatedButton(
+                onPressed: () => _initializePlayer(scenario),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.all(16),
+                  backgroundColor: scenario == TestScenario.validAuth
+                      ? Colors.green[700]
+                      : Colors.blue[700],
+                ),
+                child: Row(
                   children: [
-                    // State Display
-                    _buildStateCard(),
-
-                    const SizedBox(height: 16),
-
-                    // Playback Controls
-                    _buildPlaybackControls(),
-
-                    const SizedBox(height: 16),
-
-                    // Speed Control
-                    _buildSpeedControl(),
-
-                    const SizedBox(height: 16),
-
-                    // Volume Control
-                    _buildVolumeControl(),
-
-                    const SizedBox(height: 16),
-
-                    // Track Selection
-                    if (_videoTracks.isNotEmpty) _buildTrackSelection(),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            scenario.description,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _getScenarioDetails(scenario),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.white70,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.arrow_forward_ios),
                   ],
                 ),
               ),
@@ -231,111 +447,268 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
     );
   }
 
-  Widget _buildStateCard() {
-    return Card(
-      color: Colors.grey[800],
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            Icon(
-              _getStateIcon(_currentState),
-              color: _getStateColor(_currentState),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'State: ${_currentState.name}',
-                style: const TextStyle(fontSize: 16),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  String _getScenarioDetails(TestScenario scenario) {
+    switch (scenario) {
+      case TestScenario.validAuth:
+        return 'Axinom v10 CMAF test content with valid Widevine license';
+      case TestScenario.expiredAuth:
+        return 'Simulate expired authentication token';
+      case TestScenario.invalidAuth:
+        return 'Test with wrong license server URL';
+      case TestScenario.noAuth:
+        return 'Attempt playback without auth headers';
+      case TestScenario.wrongScheme:
+        return 'Use PlayReady for Widevine content';
+      case TestScenario.networkError:
+        return 'Test network connectivity errors';
+      case TestScenario.invalidUrl:
+        return 'Test malformed content URLs';
+    }
   }
 
-  Widget _buildPlaybackControls() {
-    return Card(
-      color: Colors.grey[800],
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.skip_previous),
-              onPressed: () async {
-                final hasPrev = await controller.hasPrevious();
-                if (hasPrev) {
-                  await controller.previous();
-                }
-              },
-              tooltip: 'Previous',
-            ),
-            IconButton(
-              icon: Icon(
-                _currentState == ESitePlayerState.playing
-                    ? Icons.pause
-                    : Icons.play_arrow,
-              ),
-              iconSize: 48,
-              onPressed: () async {
-                if (_currentState == ESitePlayerState.playing) {
-                  await controller.pause();
-                } else {
-                  await controller.play();
-                }
-              },
-              tooltip: _currentState == ESitePlayerState.playing
-                  ? 'Pause'
-                  : 'Play',
-            ),
-            IconButton(
-              icon: const Icon(Icons.skip_next),
-              onPressed: () async {
-                final hasNext = await controller.hasNext();
-                if (hasNext) {
-                  await controller.next();
-                }
-              },
-              tooltip: 'Next',
-            ),
-            IconButton(
-              icon: const Icon(Icons.replay_10),
-              onPressed: () =>
-                  controller.seekBackward(const Duration(seconds: 10)),
-              tooltip: 'Seek -10s',
-            ),
-            IconButton(
-              icon: const Icon(Icons.forward_10),
-              onPressed: () =>
-                  controller.seekForward(const Duration(seconds: 10)),
-              tooltip: 'Seek +10s',
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSpeedControl() {
-    return Card(
-      color: Colors.grey[800],
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Playback Speed: ${_playbackSpeed}x',
-              style: const TextStyle(fontSize: 14),
-            ),
-            const SizedBox(height: 8),
-            Row(
+  Widget _buildControlsPanel() {
+    return DefaultTabController(
+      length: 3,
+      child: Column(
+        children: [
+          Container(
+            color: Colors.grey[850],
+            child: Column(
               children: [
-                Expanded(
-                  child: Slider(
+                // Current Scenario
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  color: Colors.grey[800],
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Testing: ${_currentScenario?.description ?? 'Unknown'}',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: () {
+                          setState(() {
+                            _isPlayerInitialized = false;
+                            _currentScenario = null;
+                          });
+                          controller?.dispose();
+                        },
+                        tooltip: 'Change Scenario',
+                      ),
+                    ],
+                  ),
+                ),
+                // State Display
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _getStateIcon(_currentState),
+                        color: _getStateColor(_currentState),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'State: ${_currentState.name}',
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ),
+                const TabBar(
+                  tabs: [
+                    Tab(
+                      icon: Icon(Icons.play_circle, size: 20),
+                      text: 'Controls',
+                    ),
+                    Tab(icon: Icon(Icons.settings, size: 20), text: 'Settings'),
+                    Tab(icon: Icon(Icons.list, size: 20), text: 'Events'),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              children: [
+                _buildControlsTab(),
+                _buildSettingsTab(),
+                _buildEventsTab(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControlsTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Playback Controls
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.skip_previous),
+                        onPressed: () async {
+                          final hasPrev = await controller!.hasPrevious();
+                          if (hasPrev) {
+                            await controller!.previous();
+                          }
+                        },
+                        tooltip: 'Previous',
+                      ),
+                      IconButton(
+                        icon: Icon(
+                          _currentState == ESitePlayerState.playing
+                              ? Icons.pause_circle_filled
+                              : Icons.play_circle_filled,
+                        ),
+                        iconSize: 64,
+                        onPressed: () async {
+                          if (_currentState == ESitePlayerState.playing) {
+                            await controller!.pause();
+                          } else {
+                            await controller!.play();
+                          }
+                        },
+                        tooltip: _currentState == ESitePlayerState.playing
+                            ? 'Pause'
+                            : 'Play',
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.skip_next),
+                        onPressed: () async {
+                          final hasNext = await controller!.hasNext();
+                          if (hasNext) {
+                            await controller!.next();
+                          }
+                        },
+                        tooltip: 'Next',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: () => controller!.seekBackward(
+                          const Duration(seconds: 10),
+                        ),
+                        icon: const Icon(Icons.replay_10, size: 20),
+                        label: const Text('-10s'),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () => controller!.seekForward(
+                          const Duration(seconds: 10),
+                        ),
+                        icon: const Icon(Icons.forward_10, size: 20),
+                        label: const Text('+10s'),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () => controller!.seekForward(
+                          const Duration(seconds: 30),
+                        ),
+                        icon: const Icon(Icons.forward_30, size: 20),
+                        label: const Text('+30s'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Volume Control
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Volume',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: Icon(
+                          _isMuted ? Icons.volume_off : Icons.volume_up,
+                        ),
+                        onPressed: () async {
+                          final newMuted = !_isMuted;
+                          setState(() {
+                            _isMuted = newMuted;
+                          });
+                          await controller!.setMuted(newMuted);
+                        },
+                      ),
+                      Expanded(
+                        child: Slider(
+                          value: _volume,
+                          min: 0.0,
+                          max: 1.0,
+                          onChanged: (value) async {
+                            setState(() {
+                              _volume = value;
+                              _isMuted = value == 0.0;
+                            });
+                            await controller!.setVolume(value);
+                          },
+                        ),
+                      ),
+                      Text(
+                        '${(_volume * 100).toInt()}%',
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Speed Control
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Playback Speed: ${_playbackSpeed}x',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Slider(
                     value: _playbackSpeed,
                     min: 0.5,
                     max: 4.0,
@@ -345,108 +718,183 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
                       setState(() {
                         _playbackSpeed = value;
                       });
-                      await controller.setPlaybackSpeed(value);
+                      await controller!.setPlaybackSpeed(value);
                     },
                   ),
-                ),
-                ...([0.5, 1.0, 1.5, 2.0, 4.0].map(
-                  (speed) => Padding(
-                    padding: const EdgeInsets.only(left: 4),
-                    child: TextButton(
-                      onPressed: () async {
-                        setState(() {
-                          _playbackSpeed = speed;
-                        });
-                        await controller.setPlaybackSpeed(speed);
-                      },
-                      child: Text('${speed}x'),
-                    ),
+                  Wrap(
+                    spacing: 8,
+                    children: [0.5, 1.0, 1.5, 2.0, 4.0]
+                        .map(
+                          (speed) => ChoiceChip(
+                            label: Text('${speed}x'),
+                            selected: _playbackSpeed == speed,
+                            onSelected: (selected) async {
+                              if (selected) {
+                                setState(() {
+                                  _playbackSpeed = speed;
+                                });
+                                await controller!.setPlaybackSpeed(speed);
+                              }
+                            },
+                          ),
+                        )
+                        .toList(),
                   ),
-                )),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildVolumeControl() {
-    return Card(
-      color: Colors.grey[800],
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            IconButton(
-              icon: Icon(_isMuted ? Icons.volume_off : Icons.volume_up),
-              onPressed: () async {
-                final newMuted = !_isMuted;
-                setState(() {
-                  _isMuted = newMuted;
-                });
-                await controller.setMuted(newMuted);
-              },
-            ),
-            Expanded(
-              child: Slider(
-                value: _volume,
-                min: 0.0,
-                max: 1.0,
-                onChanged: (value) async {
-                  setState(() {
-                    _volume = value;
-                    _isMuted = value == 0.0;
-                  });
-                  await controller.setVolume(value);
-                },
+                ],
               ),
             ),
-            Text(
-              '${(_volume * 100).toInt()}%',
-              style: const TextStyle(fontSize: 14),
+          ),
+          const SizedBox(height: 12),
+
+          // Track Selection
+          if (_videoTracks.isNotEmpty)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Video Quality',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      children: _videoTracks.map((track) {
+                        final trackId = track['id'] as String;
+                        final label = track['label'] as String;
+                        final isSelected = trackId == _selectedTrackId;
+                        return ChoiceChip(
+                          label: Text(label),
+                          selected: isSelected,
+                          onSelected: (selected) async {
+                            if (selected) {
+                              setState(() {
+                                _selectedTrackId = trackId;
+                              });
+                              await controller!.setVideoTrack(trackId);
+                            }
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }
 
-  Widget _buildTrackSelection() {
-    return Card(
-      color: Colors.grey[800],
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Video Quality',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: _videoTracks.map((track) {
-                final trackId = track['id'] as String;
-                final label = track['label'] as String;
-                final isSelected = trackId == _selectedTrackId;
-                return ChoiceChip(
-                  label: Text(label),
-                  selected: isSelected,
-                  onSelected: (selected) async {
-                    if (selected) {
-                      setState(() {
-                        _selectedTrackId = trackId;
-                      });
-                      await controller.setVideoTrack(trackId);
-                    }
-                  },
-                );
-              }).toList(),
-            ),
-          ],
+  Widget _buildEventsTab() {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          color: Colors.grey[850],
+          child: Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Event Log',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _eventLog.clear();
+                  });
+                },
+                icon: const Icon(Icons.clear_all, size: 16),
+                label: const Text('Clear'),
+              ),
+            ],
+          ),
         ),
+        Expanded(
+          child: _eventLog.isEmpty
+              ? const Center(
+                  child: Text(
+                    'No events yet',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(8),
+                  itemCount: _eventLog.length,
+                  itemBuilder: (context, index) {
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 4),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[850],
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        _eventLog[index],
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  void _showAboutDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('ESite Player Test Suite'),
+        content: const SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'This comprehensive test suite allows you to validate:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              SizedBox(height: 12),
+              Text('✅ Valid DRM authentication'),
+              Text('❌ Expired/invalid tokens'),
+              Text('❌ Missing authentication'),
+              Text('❌ Wrong DRM schemes'),
+              Text('❌ Network errors'),
+              Text('❌ Invalid URLs'),
+              SizedBox(height: 12),
+              Text('Features:', style: TextStyle(fontWeight: FontWeight.bold)),
+              SizedBox(height: 8),
+              Text('• Screenshot blocking (FLAG_SECURE)'),
+              Text('• Screen recording prevention'),
+              Text('• Full playback controls'),
+              Text('• Quality selection'),
+              Text('• Volume & speed control'),
+              Text('• Event logging'),
+              SizedBox(height: 12),
+              Text(
+                'Note: Test on a real device for full DRM functionality.',
+                style: TextStyle(
+                  fontStyle: FontStyle.italic,
+                  color: Colors.orange,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
       ),
     );
   }

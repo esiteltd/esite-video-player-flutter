@@ -14,6 +14,8 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.drm.DefaultDrmSessionManagerProvider
 import androidx.media3.exoplayer.drm.DrmSessionEventListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.dash.DashMediaSource
+import androidx.media3.exoplayer.hls.HlsMediaSource
 
 class NativePlayer(
     private val context: Context,
@@ -129,12 +131,12 @@ class NativePlayer(
             })
 
             val drmEventListener = object : DrmSessionEventListener {
+                // Updated signatures to match media3: remove loadDurationMs parameter from onDrmSessionAcquired
                 override fun onDrmSessionAcquired(
                     windowIndex: Int,
-                    mediaPeriodId: androidx.media3.exoplayer.source.MediaSource.MediaPeriodId?,
-                    loadDurationMs: Long
+                    mediaPeriodId: androidx.media3.exoplayer.source.MediaSource.MediaPeriodId?
                 ) {
-                    onDrmEvent(1, "License acquired in ${loadDurationMs}ms")
+                    onDrmEvent(1, "License acquired")
                 }
 
                 override fun onDrmKeysLoaded(
@@ -154,9 +156,9 @@ class NativePlayer(
             }
 
             player?.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+                // onDrmSessionAcquired now only receives EventTime in newer media3 APIs
                 override fun onDrmSessionAcquired(
-                    eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
-                    state: Int
+                    eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime
                 ) {
                     onDrmEvent(0, "License requested")
                 }
