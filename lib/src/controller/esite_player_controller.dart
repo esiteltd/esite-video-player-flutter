@@ -18,14 +18,21 @@ class ESitePlayerController {
   final _errorController = StreamController<ESitePlayerError>.broadcast();
 
   ESitePlayerState _state = ESitePlayerState.idle;
+  bool _isInitialized = false;
+  bool _isDisposed = false;
+
+  // Store subscriptions to cancel them on dispose
+  StreamSubscription<ESitePlayerState>? _stateSubscription;
+  StreamSubscription<ESiteDrmEvent>? _drmSubscription;
+  StreamSubscription<ESitePlayerError>? _errorSubscription;
 
   ESitePlayerController(this.config)
     : _platform = Platform.isAndroid
           ? ESiteAndroidPlatformPlayer()
           : throw UnsupportedError('Platform not supported') {
-    _platform.stateStream.listen(_updateState);
-    _platform.drmStream.listen(_drmController.add);
-    _platform.errorStream.listen((error) {
+    _stateSubscription = _platform.stateStream.listen(_updateState);
+    _drmSubscription = _platform.drmStream.listen(_drmController.add);
+    _errorSubscription = _platform.errorStream.listen((error) {
       _updateState(ESitePlayerState.error);
       _errorController.add(error);
     });
@@ -36,17 +43,50 @@ class ESitePlayerController {
   Stream<ESitePlayerError> get errorStream => _errorController.stream;
 
   Future<void> initialize() async {
+    if (_isDisposed) {
+      throw StateError('Controller has been disposed');
+    }
+    if (_isInitialized) {
+      return; // Prevent double initialization
+    }
+    _isInitialized = true;
     _updateState(ESitePlayerState.initializing);
     await _platform.initialize(config);
   }
 
-  Future<void> play() async => _platform.play();
-  Future<void> pause() async => _platform.pause();
-  Future<void> seekTo(Duration position) async => _platform.seekTo(position);
-  Future<void> seekForward(Duration offset) async =>
-      _platform.seekForward(offset);
-  Future<void> seekBackward(Duration offset) async =>
-      _platform.seekBackward(offset);
+  Future<void> play() async {
+    _checkDisposed();
+    return _platform.play();
+  }
+
+  Future<void> pause() async {
+    _checkDisposed();
+    return _platform.pause();
+  }
+
+  Future<void> seekTo(Duration position) async {
+    _checkDisposed();
+    if (position.isNegative) {
+      throw ArgumentError('Position cannot be negative');
+    }
+    return _platform.seekTo(position);
+  }
+
+  Future<void> seekForward(Duration offset) async {
+    _checkDisposed();
+    if (offset.isNegative) {
+      throw ArgumentError('Offset cannot be negative');
+    }
+    return _platform.seekForward(offset);
+  }
+
+  Future<void> seekBackward(Duration offset) async {
+    _checkDisposed();
+    if (offset.isNegative) {
+      throw ArgumentError('Offset cannot be negative');
+    }
+    return _platform.seekBackward(offset);
+  }
 
   Future<void> setPlaybackSpeed(double speed) async {
     // Validate speed range: 0.5x to 4x
@@ -73,20 +113,57 @@ class ESitePlayerController {
       _platform.setSubtitleEnabled(enabled);
   Future<bool> isSubtitleEnabled() async => _platform.isSubtitleEnabled();
 
-  Future<bool> hasNext() async => _platform.hasNext();
-  Future<bool> hasPrevious() async => _platform.hasPrevious();
-  Future<void> next() async => _platform.next();
-  Future<void> previous() async => _platform.previous();
+  Future<bool> hasNext() async {
+    _checkDisposed();
+    return _platform.hasNext();
+  }
+
+  Future<bool> hasPrevious() async {
+    _checkDisposed();
+    return _platform.hasPrevious();
+  }
+
+  Future<void> next() async {
+    _checkDisposed();
+    return _platform.next();
+  }
+
+  Future<void> previous() async {
+    _checkDisposed();
+    return _platform.previous();
+  }
 
   Future<void> dispose() async {
+    if (_isDisposed) {
+      return; // Already disposed
+    }
+    _isDisposed = true;
+
+    // Cancel all subscriptions first
+    await _stateSubscription?.cancel();
+    await _drmSubscription?.cancel();
+    await _errorSubscription?.cancel();
+
+    // Dispose platform player
     await _platform.dispose();
+
+    // Close stream controllers
     await _stateController.close();
     await _drmController.close();
     await _errorController.close();
   }
 
+  void _checkDisposed() {
+    if (_isDisposed) {
+      throw StateError('Controller has been disposed');
+    }
+  }
+
   void _updateState(ESitePlayerState state) {
+    if (_isDisposed) return; // Ignore updates after disposal
     _state = state;
-    _stateController.add(state);
+    if (!_stateController.isClosed) {
+      _stateController.add(state);
+    }
   }
 }

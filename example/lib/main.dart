@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:esite_flutter_player/esite_flutter_player.dart';
 import 'package:flutter/material.dart';
 
@@ -70,6 +72,14 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
   bool _isPlayerInitialized = false;
   final List<String> _eventLog = [];
 
+  // Store subscriptions to cancel them
+  StreamSubscription<ESitePlayerState>? _stateSubscription;
+  StreamSubscription<ESiteDrmEvent>? _drmSubscription;
+  StreamSubscription<ESitePlayerError>? _errorSubscription;
+
+  static const int _maxEventLogSize =
+      30; // Limit log size to prevent memory issues
+
   @override
   void initState() {
     super.initState();
@@ -83,13 +93,17 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
         0,
         '${DateTime.now().toString().substring(11, 19)} - $message',
       );
-      if (_eventLog.length > 50) {
-        _eventLog.removeLast();
+      // More aggressive limit to prevent memory bloat
+      if (_eventLog.length > _maxEventLogSize) {
+        _eventLog.removeRange(_maxEventLogSize, _eventLog.length);
       }
     });
   }
 
   void _initializePlayer(TestScenario scenario) {
+    // Cancel existing subscriptions first
+    _cancelSubscriptions();
+
     // Dispose existing controller if any
     controller?.dispose();
 
@@ -114,7 +128,8 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
       _isPlayerInitialized = true;
     });
 
-    controller!.stateStream.listen((state) {
+    // Subscribe to streams and store subscriptions
+    _stateSubscription = controller!.stateStream.listen((state) {
       if (mounted) {
         setState(() {
           _currentState = state;
@@ -127,7 +142,7 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
       }
     });
 
-    controller!.drmStream.listen((event) {
+    _drmSubscription = controller!.drmStream.listen((event) {
       _addToLog('DRM event: ${event.type.name} - ${event.message ?? ''}');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -142,7 +157,7 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
       }
     });
 
-    controller!.errorStream.listen((error) {
+    _errorSubscription = controller!.errorStream.listen((error) {
       _addToLog('Error: ${error.code.name} - ${error.message}');
       if (mounted) {
         setState(() {
@@ -157,6 +172,15 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
         );
       }
     });
+  }
+
+  void _cancelSubscriptions() {
+    _stateSubscription?.cancel();
+    _drmSubscription?.cancel();
+    _errorSubscription?.cancel();
+    _stateSubscription = null;
+    _drmSubscription = null;
+    _errorSubscription = null;
   }
 
   ESitePlayerConfig _getConfigForScenario(TestScenario scenario) {
@@ -291,7 +315,9 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
 
   @override
   void dispose() {
+    _cancelSubscriptions();
     controller?.dispose();
+    controller = null;
     super.dispose();
   }
 

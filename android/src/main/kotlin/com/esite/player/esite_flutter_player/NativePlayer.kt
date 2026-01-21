@@ -26,14 +26,21 @@ class NativePlayer(
     private val onPlaybackPaused: () -> Unit = {}
 ) {
 
+    @Volatile
     private var player: ExoPlayer? = null
     private var trackSelector: DefaultTrackSelector? = null
     private var currentMediaItems: MutableList<MediaItem> = mutableListOf()
     private var currentIndex: Int = 0
+    private var playerListener: Player.Listener? = null
+    private var isInitialized = false
 
     fun getPlayer(): ExoPlayer? = player
 
     fun initialize(args: Map<String, Any>) {
+        // Prevent double initialization
+        if (isInitialized) {
+            dispose()
+        }
         val sourceUrl = args["sourceUrl"] as String
         val headers = args["headers"] as? Map<String, String> ?: emptyMap()
         val drm = args["drm"] as? Map<String, Any>
@@ -63,14 +70,25 @@ class NativePlayer(
         }
 
         try {
-            trackSelector = DefaultTrackSelector(context)
+            trackSelector = DefaultTrackSelector(context).apply {
+                // Optimize for mobile - prefer lower quality when bandwidth is limited
+                setParameters(
+                    buildUponParameters()
+                        .setForceHighestSupportedBitrate(false)
+                        .setAllowVideoMixedMimeTypeAdaptiveness(true)
+                )
+            }
 
             val httpDataSourceFactory = DefaultHttpDataSource.Factory()
                 .setUserAgent(Util.getUserAgent(context, "esite_flutter_player"))
                 .setDefaultRequestProperties(headers)
+                .setConnectTimeoutMs(15000)  // 15 second timeout
+                .setReadTimeoutMs(15000)
 
             val drmHttpDataSourceFactory = DefaultHttpDataSource.Factory()
                 .setUserAgent(Util.getUserAgent(context, "esite_flutter_player"))
+                .setConnectTimeoutMs(15000)
+                .setReadTimeoutMs(15000)
 
             val drmSessionManagerProvider = DefaultDrmSessionManagerProvider()
             drmSessionManagerProvider.setDrmHttpDataSourceFactory(drmHttpDataSourceFactory)
@@ -78,13 +96,27 @@ class NativePlayer(
             val mediaSourceFactory = DefaultMediaSourceFactory(context)
                 .setDataSourceFactory(httpDataSourceFactory)
                 .setDrmSessionManagerProvider(drmSessionManagerProvider)
+                .setLoadErrorHandlingPolicy(
+                    androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(3) // Retry 3 times
+                )
 
             player = ExoPlayer.Builder(context)
                 .setTrackSelector(trackSelector!!)
                 .setMediaSourceFactory(mediaSourceFactory)
+                .setLoadControl(
+                    androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                        .setBufferDurationsMs(
+                            15000,  // minBufferMs
+                            30000,  // maxBufferMs
+                            2500,   // bufferForPlaybackMs
+                            5000    // bufferForPlaybackAfterRebufferMs
+                        )
+                        .build()
+                )
                 .build()
 
-            player?.addListener(object : Player.Listener {
+            // Store listener reference to remove it later
+            playerListener = object : Player.Listener {
                 override fun onPlaybackStateChanged(state: Int) {
                     val mapped = when (state) {
                         Player.STATE_IDLE -> 0
@@ -103,15 +135,15 @@ class NativePlayer(
                     val (code, message) = when (error.errorCode) {
                         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
                         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
-                            Pair(2, "Network error: ${error.message}")
+                            Pair(2, "Network connection error")
                         PlaybackException.ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED,
                         PlaybackException.ERROR_CODE_DRM_PROVISIONING_FAILED,
                         PlaybackException.ERROR_CODE_DRM_DEVICE_REVOKED ->
-                            Pair(1, "DRM failure: ${error.message}")
+                            Pair(1, "DRM license error") // Secured: don't expose details
                         PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE,
                         PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
-                            Pair(0, "Invalid source: ${error.message}")
-                        else -> Pair(3, "Playback error: ${error.message}")
+                            Pair(0, "Invalid content source")
+                        else -> Pair(3, "Playback error")
                     }
                     onError(code, message)
                     onDrmEvent(2, message)
@@ -122,13 +154,18 @@ class NativePlayer(
                         onState(4)
                         onPlaybackStarted()
                     } else {
-                        if (player?.playbackState != Player.STATE_ENDED) {
-                            onState(5)
+                        player?.let {
+                            if (it.playbackState != Player.STATE_ENDED) {
+                                onState(5)
+                            }
                         }
                         onPlaybackPaused()
                     }
                 }
-            })
+            }
+
+            // Add listener after initialization
+            playerListener?.let { player?.addListener(it) }
 
             val drmEventListener = object : DrmSessionEventListener {
                 // Updated signatures to match media3: remove loadDurationMs parameter from onDrmSessionAcquired
@@ -182,8 +219,11 @@ class NativePlayer(
             player?.prepare()
             player?.playWhenReady = autoPlay
 
+            isInitialized = true
+
         } catch (e: Exception) {
-            onError(4, "Initialization failed: ${e.message}")
+            onError(4, "Initialization failed")
+            dispose() // Clean up on failure
         }
     }
 
@@ -196,7 +236,11 @@ class NativePlayer(
     }
 
     fun seekTo(positionMs: Long) {
-        player?.seekTo(positionMs)
+        player?.let {
+            if (positionMs >= 0 && positionMs <= it.duration) {
+                it.seekTo(positionMs)
+            }
+        }
     }
 
     fun setPlaybackSpeed(speed: Float) {
@@ -315,10 +359,26 @@ class NativePlayer(
     }
 
     fun dispose() {
-        onPlaybackPaused()
-        player?.release()
-        player = null
-        trackSelector = null
-        currentMediaItems.clear()
+        try {
+            onPlaybackPaused()
+
+            // Remove listener first to prevent callbacks during cleanup
+            playerListener?.let {
+                player?.removeListener(it)
+            }
+            playerListener = null
+
+            // Release player resources
+            player?.stop()
+            player?.release()
+            player = null
+
+            trackSelector = null
+            currentMediaItems.clear()
+            currentIndex = 0
+            isInitialized = false
+        } catch (e: Exception) {
+            // Silently handle disposal errors
+        }
     }
 }
