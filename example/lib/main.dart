@@ -84,7 +84,7 @@ class ESiteVideoService {
   static const String _apiKey = 'sk_live_8f2c1e9a7d4b';
 
   /// Fetches Widevine license data for a video
-  /// 
+  ///
   /// [videoId] - The unique video identifier
   /// [quality] - Video quality (e.g., '360', '720', '1080')
   static Future<ESiteLicenseResponse> getWidevineeLicense({
@@ -131,6 +131,7 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
   String? _selectedTrackId;
   TestScenario? _currentScenario;
   bool _isPlayerInitialized = false;
+  bool _isLoadingApi = false;
   final List<String> _eventLog = [];
 
   // Store subscriptions to cancel them
@@ -184,16 +185,24 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
 
     // Handle eSite Live API scenario with async fetch
     if (scenario == TestScenario.esiteLiveApi) {
+      setState(() {
+        _isLoadingApi = true;
+      });
       _addToLog('Fetching license from eSite API...');
       try {
         final licenseData = await ESiteVideoService.getWidevineeLicense(
           videoId: '6a5b2b6833b76d0cca317fece3c7f054',
           quality: '360',
         );
+        if (mounted) {
+          setState(() {
+            _isLoadingApi = false;
+          });
+        }
         _addToLog('License fetched successfully!');
         _addToLog('Video URL: ${licenseData.manifestUrl}');
         _addToLog('License URL: ${licenseData.licenseServerUrl}');
-        
+
         config = ESitePlayerConfig(
           sourceUrl: licenseData.manifestUrl,
           drm: ESiteDrmConfig(
@@ -211,6 +220,7 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
         _addToLog('Failed to fetch license: $e');
         if (mounted) {
           setState(() {
+            _isLoadingApi = false;
             _errorMessage = 'API Error: $e';
           });
         }
@@ -463,6 +473,27 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
   }
 
   Widget _buildPlayerArea() {
+    if (_isLoadingApi) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            const Text(
+              'Fetching license from API...',
+              style: TextStyle(color: Colors.white70, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Please wait',
+              style: TextStyle(color: Colors.grey[500], fontSize: 14),
+            ),
+          ],
+        ),
+      );
+    }
+
     if (!_isPlayerInitialized) {
       return const Center(
         child: Column(
