@@ -216,6 +216,17 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
           preventScreenshots: true,
           preventScreenRecording: true,
         );
+
+        // Log the config parameters
+        _addToLog('=== ESitePlayerConfig ===');
+        _addToLog('sourceUrl: ${config.sourceUrl}');
+        _addToLog('autoPlay: ${config.autoPlay}');
+        _addToLog('preventScreenshots: ${config.preventScreenshots}');
+        _addToLog('preventScreenRecording: ${config.preventScreenRecording}');
+        _addToLog('=== ESiteDrmConfig ===');
+        _addToLog('licenseUrl: ${config.drm?.licenseUrl}');
+        _addToLog('scheme: ${config.drm?.scheme}');
+        _addToLog('X-AxDRM-Message: ${licenseData.entitlementMessage.substring(0, 50)}...');
       } catch (e) {
         _addToLog('Failed to fetch license: $e');
         if (mounted) {
