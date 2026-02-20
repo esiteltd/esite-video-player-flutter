@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:esite_flutter_player/esite_flutter_player.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 void main() {
   runApp(const MyApp());
@@ -22,6 +24,7 @@ class MyApp extends StatelessWidget {
 
 // Test scenarios with different authentication and access states
 enum TestScenario {
+  esiteLiveApi, // New: Real API call to eSite backend
   validAuth,
   expiredAuth,
   invalidAuth,
@@ -34,6 +37,8 @@ enum TestScenario {
 extension TestScenarioExtension on TestScenario {
   String get description {
     switch (this) {
+      case TestScenario.esiteLiveApi:
+        return '🚀 eSite Live API (Production)';
       case TestScenario.validAuth:
         return '✅ Valid Auth (Should Work)';
       case TestScenario.expiredAuth:
@@ -48,6 +53,62 @@ extension TestScenarioExtension on TestScenario {
         return '❌ Network Error (Invalid Domain)';
       case TestScenario.invalidUrl:
         return '❌ Invalid URL Format (Error)';
+    }
+  }
+}
+
+/// Response model for the eSite video license API
+class ESiteLicenseResponse {
+  final String entitlementMessage;
+  final String licenseServerUrl;
+  final String manifestUrl;
+
+  ESiteLicenseResponse({
+    required this.entitlementMessage,
+    required this.licenseServerUrl,
+    required this.manifestUrl,
+  });
+
+  factory ESiteLicenseResponse.fromJson(Map<String, dynamic> json) {
+    return ESiteLicenseResponse(
+      entitlementMessage: json['entitlement_message'] as String,
+      licenseServerUrl: json['license_server_url'] as String,
+      manifestUrl: json['manifest_url'] as String,
+    );
+  }
+}
+
+/// Service to fetch DRM license data from eSite backend
+class ESiteVideoService {
+  static const String _baseUrl = 'https://video-service.esite-lab.com/api/v1';
+  static const String _apiKey = 'sk_live_8f2c1e9a7d4b';
+
+  /// Fetches Widevine license data for a video
+  /// 
+  /// [videoId] - The unique video identifier
+  /// [quality] - Video quality (e.g., '360', '720', '1080')
+  static Future<ESiteLicenseResponse> getWidevineeLicense({
+    required String videoId,
+    String quality = '360',
+  }) async {
+    final url = Uri.parse(
+      '$_baseUrl/public/videos/$videoId/widevine?quality=$quality',
+    );
+
+    final response = await http.get(
+      url,
+      headers: {
+        'Api-Key': _apiKey,
+      },
+    );
+
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      return ESiteLicenseResponse.fromJson(json);
+    } else {
+      throw Exception(
+        'Failed to fetch license: ${response.statusCode} - ${response.body}',
+      );
     }
   }
 }
@@ -100,7 +161,7 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
     });
   }
 
-  void _initializePlayer(TestScenario scenario) {
+  void _initializePlayer(TestScenario scenario) async {
     // Cancel existing subscriptions first
     _cancelSubscriptions();
 
@@ -119,7 +180,46 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
 
     _addToLog('Initializing player with scenario: ${scenario.name}');
 
-    final config = _getConfigForScenario(scenario);
+    ESitePlayerConfig config;
+
+    // Handle eSite Live API scenario with async fetch
+    if (scenario == TestScenario.esiteLiveApi) {
+      _addToLog('Fetching license from eSite API...');
+      try {
+        final licenseData = await ESiteVideoService.getWidevineeLicense(
+          videoId: '6a5b2b6833b76d0cca317fece3c7f054',
+          quality: '360',
+        );
+        _addToLog('License fetched successfully!');
+        _addToLog('Video URL: ${licenseData.manifestUrl}');
+        _addToLog('License URL: ${licenseData.licenseServerUrl}');
+        
+        config = ESitePlayerConfig(
+          sourceUrl: licenseData.manifestUrl,
+          drm: ESiteDrmConfig(
+            licenseUrl: licenseData.licenseServerUrl,
+            scheme: ESiteDrmScheme.widevine,
+            licenseHeaders: {
+              'X-AxDRM-Message': licenseData.entitlementMessage,
+            },
+          ),
+          autoPlay: false,
+          preventScreenshots: true,
+          preventScreenRecording: true,
+        );
+      } catch (e) {
+        _addToLog('Failed to fetch license: $e');
+        if (mounted) {
+          setState(() {
+            _errorMessage = 'API Error: $e';
+          });
+        }
+        return;
+      }
+    } else {
+      config = _getConfigForScenario(scenario);
+    }
+
     controller = ESitePlayerController(config);
 
     controller!.initialize();
@@ -185,6 +285,11 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
 
   ESitePlayerConfig _getConfigForScenario(TestScenario scenario) {
     switch (scenario) {
+      case TestScenario.esiteLiveApi:
+        // This case is handled separately in _initializePlayer with async API call
+        // Return a dummy config (should never be reached)
+        throw StateError('esiteLiveApi should be handled separately');
+
       case TestScenario.validAuth:
         // Valid authentication token - should work (Axinom v10 CMAF test content)
         return ESitePlayerConfig(
@@ -434,9 +539,11 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
                 onPressed: () => _initializePlayer(scenario),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.all(16),
-                  backgroundColor: scenario == TestScenario.validAuth
-                      ? Colors.green[700]
-                      : Colors.blue[700],
+                  backgroundColor: scenario == TestScenario.esiteLiveApi
+                      ? Colors.purple[700]
+                      : scenario == TestScenario.validAuth
+                          ? Colors.green[700]
+                          : Colors.blue[700],
                 ),
                 child: Row(
                   children: [
@@ -475,6 +582,8 @@ class _PlayerDemoPageState extends State<PlayerDemoPage> {
 
   String _getScenarioDetails(TestScenario scenario) {
     switch (scenario) {
+      case TestScenario.esiteLiveApi:
+        return 'Fetches license from eSite backend API, then plays with Widevine DRM';
       case TestScenario.validAuth:
         return 'Axinom v10 CMAF test content with valid Widevine license';
       case TestScenario.expiredAuth:
