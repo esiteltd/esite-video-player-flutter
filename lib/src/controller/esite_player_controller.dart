@@ -18,10 +18,8 @@ class ESitePlayerController {
   final _errorController = StreamController<ESitePlayerError>.broadcast();
 
   ESitePlayerState _state = ESitePlayerState.idle;
-  bool _isInitialized = false;
   bool _isDisposed = false;
 
-  // Store subscriptions to cancel them on dispose
   StreamSubscription<ESitePlayerState>? _stateSubscription;
   StreamSubscription<ESiteDrmEvent>? _drmSubscription;
   StreamSubscription<ESitePlayerError>? _errorSubscription;
@@ -42,16 +40,20 @@ class ESitePlayerController {
   Stream<ESiteDrmEvent> get drmStream => _drmController.stream;
   Stream<ESitePlayerError> get errorStream => _errorController.stream;
 
+  Future<void> launchPlayer() async {
+    if (_isDisposed) {
+      throw StateError('Controller has been disposed');
+    }
+    _updateState(ESitePlayerState.initializing);
+    await _platform.launchPlayer(config);
+  }
+
   Future<void> initialize() async {
     if (_isDisposed) {
       throw StateError('Controller has been disposed');
     }
-    if (_isInitialized) {
-      return; // Prevent double initialization
-    }
-    _isInitialized = true;
     _updateState(ESitePlayerState.initializing);
-    await _platform.initialize(config);
+    await _platform.launchPlayer(config);
   }
 
   Future<void> play() async {
@@ -89,13 +91,11 @@ class ESitePlayerController {
   }
 
   Future<void> setPlaybackSpeed(double speed) async {
-    // Validate speed range: 0.5x to 4x
     final clampedSpeed = speed.clamp(0.5, 4.0);
     await _platform.setPlaybackSpeed(clampedSpeed);
   }
 
   Future<void> setVolume(double volume) async {
-    // Validate volume range: 0.0 to 1.0
     final clampedVolume = volume.clamp(0.0, 1.0);
     await _platform.setVolume(clampedVolume);
   }
@@ -135,19 +135,16 @@ class ESitePlayerController {
 
   Future<void> dispose() async {
     if (_isDisposed) {
-      return; // Already disposed
+      return;
     }
     _isDisposed = true;
 
-    // Cancel all subscriptions first
     await _stateSubscription?.cancel();
     await _drmSubscription?.cancel();
     await _errorSubscription?.cancel();
 
-    // Dispose platform player
     await _platform.dispose();
 
-    // Close stream controllers
     await _stateController.close();
     await _drmController.close();
     await _errorController.close();
@@ -160,7 +157,7 @@ class ESitePlayerController {
   }
 
   void _updateState(ESitePlayerState state) {
-    if (_isDisposed) return; // Ignore updates after disposal
+    if (_isDisposed) return;
     _state = state;
     if (!_stateController.isClosed) {
       _stateController.add(state);

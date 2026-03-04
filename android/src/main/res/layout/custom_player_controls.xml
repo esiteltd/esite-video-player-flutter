@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- Full-screen dim overlay (makes controls visible on bright video) -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#40000000" />
+
+    <!-- Top gradient -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="80dp"
+        android:layout_gravity="top"
+        android:background="@drawable/gradient_top" />
+
+    <!-- Center transport controls -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <ImageButton
+            android:id="@id/exo_rew"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:scaleType="fitCenter"
+            android:contentDescription="Rewind"
+            app:tint="@android:color/white" />
+
+        <!-- Play/pause wrapped with buffering ring -->
+        <FrameLayout
+            android:layout_width="84dp"
+            android:layout_height="84dp"
+            android:layout_marginStart="28dp"
+            android:layout_marginEnd="28dp"
+            android:layout_gravity="center">
+
+            <!-- Buffering ring (behind the play/pause button) -->
+            <ProgressBar
+                android:id="@+id/buffering_ring"
+                style="?android:attr/progressBarStyleLarge"
+                android:layout_width="84dp"
+                android:layout_height="84dp"
+                android:layout_gravity="center"
+                android:indeterminate="true"
+                android:visibility="gone" />
+
+            <ImageButton
+                android:id="@id/exo_play_pause"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:layout_gravity="center"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:scaleType="fitCenter"
+                android:contentDescription="Play/Pause"
+                app:tint="@android:color/white" />
+
+        </FrameLayout>
+
+        <ImageButton
+            android:id="@id/exo_ffwd"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:scaleType="fitCenter"
+            android:contentDescription="Fast forward"
+            app:tint="@android:color/white" />
+
+    </LinearLayout>
+
+    <!-- Bottom controls with gradient -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:background="@drawable/gradient_bottom"
+        android:paddingTop="32dp"
+        android:paddingBottom="12dp">
+
+        <!-- Seek bar with big thumb -->
+        <androidx.media3.ui.DefaultTimeBar
+            android:id="@id/exo_progress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:scrubber_enabled_size="20dp"
+            app:scrubber_dragged_size="24dp"
+            app:scrubber_disabled_size="0dp"
+            app:touch_target_height="48dp"
+            app:bar_height="4dp"
+            app:played_color="#FFFFFFFF"
+            app:unplayed_color="#33FFFFFF"
+            app:buffered_color="#66FFFFFF"
+            app:scrubber_color="#FFFFFFFF"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp" />
+
+        <!-- Bottom row: time + buttons -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="8dp">
+
+            <TextView
+                android:id="@id/exo_position"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:includeFontPadding="false" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=" / "
+                android:textColor="#99FFFFFF"
+                android:textSize="13sp"
+                android:includeFontPadding="false" />
+
+            <TextView
+                android:id="@id/exo_duration"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#99FFFFFF"
+                android:textSize="13sp"
+                android:includeFontPadding="false" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <ImageButton
+                android:id="@+id/btn_speed"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Playback speed"
+                android:src="@drawable/ic_speed"
+                android:scaleType="centerInside"
+                android:padding="8dp"
+                app:tint="@android:color/white" />
+
+            <ImageButton
+                android:id="@+id/btn_quality"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Video quality"
+                android:src="@drawable/ic_hd"
+                android:scaleType="centerInside"
+                android:padding="8dp"
+                app:tint="@android:color/white" />
+
+            <ImageButton
+                android:id="@+id/btn_audio"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Audio track"
+                android:src="@drawable/ic_audiotrack"
+                android:scaleType="centerInside"
+                android:padding="8dp"
+                app:tint="@android:color/white" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</FrameLayout>

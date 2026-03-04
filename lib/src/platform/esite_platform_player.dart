@@ -10,6 +10,7 @@ abstract class ESitePlatformPlayer {
   Stream<ESiteDrmEvent> get drmStream;
   Stream<ESitePlayerError> get errorStream;
 
+  Future<void> launchPlayer(ESitePlayerConfig config);
   Future<void> initialize(ESitePlayerConfig config);
   Future<void> play();
   Future<void> pause();

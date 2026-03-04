@@ -46,9 +46,8 @@ class ESiteAndroidPlatformPlayer implements ESitePlatformPlayer {
         ),
       );
 
-  @override
-  Future<void> initialize(ESitePlayerConfig config) {
-    return _methodChannel.invokeMethod('initialize', {
+  Map<String, dynamic> _configToMap(ESitePlayerConfig config) {
+    final map = <String, dynamic>{
       'sourceUrl': config.sourceUrl,
       'headers': config.headers,
       'autoPlay': config.autoPlay,
@@ -59,7 +58,24 @@ class ESiteAndroidPlatformPlayer implements ESitePlatformPlayer {
         'scheme': config.drm.scheme.name,
         'licenseHeaders': config.drm.licenseHeaders,
       },
-    });
+    };
+    if (config.primaryColor != null) {
+      map['primaryColor'] = config.primaryColor!.toARGB32();
+    }
+    if (config.secondaryColor != null) {
+      map['secondaryColor'] = config.secondaryColor!.toARGB32();
+    }
+    return map;
+  }
+
+  @override
+  Future<void> launchPlayer(ESitePlayerConfig config) {
+    return _methodChannel.invokeMethod('launchPlayer', _configToMap(config));
+  }
+
+  @override
+  Future<void> initialize(ESitePlayerConfig config) {
+    return _methodChannel.invokeMethod('initialize', _configToMap(config));
   }
 
   @override

@@ -1,8 +1,7 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../controller/esite_player_controller.dart';
+import '../events/esite_player_state.dart';
 
 class ESitePlayerView extends StatelessWidget {
   final ESitePlayerController controller;
@@ -11,16 +10,28 @@ class ESitePlayerView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (defaultTargetPlatform != TargetPlatform.android) {
-      return const Center(
-        child: Text('ESitePlayerView is only supported on Android'),
-      );
-    }
-
-    return AndroidView(
-      viewType: 'esite_flutter_player/view',
-      creationParams: const <String, dynamic>{},
-      creationParamsCodec: const StandardMessageCodec(),
+    return StreamBuilder<ESitePlayerState>(
+      stream: controller.stateStream,
+      initialData: controller.currentState,
+      builder: (context, snapshot) {
+        final state = snapshot.data ?? ESitePlayerState.idle;
+        return GestureDetector(
+          onTap: () => controller.launchPlayer(),
+          child: Container(
+            color: Colors.black,
+            child: Center(
+              child: state == ESitePlayerState.initializing ||
+                      state == ESitePlayerState.buffering
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Icon(
+                      Icons.play_circle_outline,
+                      size: 72,
+                      color: Colors.white,
+                    ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

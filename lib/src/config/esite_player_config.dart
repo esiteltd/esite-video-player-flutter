@@ -1,3 +1,5 @@
+import 'dart:ui' show Color;
+
 import 'esite_drm_config.dart';
 
 class ESitePlayerConfig {
@@ -7,6 +9,8 @@ class ESitePlayerConfig {
   final bool autoPlay;
   final bool preventScreenshots;
   final bool preventScreenRecording;
+  final Color? primaryColor;
+  final Color? secondaryColor;
 
   const ESitePlayerConfig({
     required this.sourceUrl,
@@ -15,5 +19,7 @@ class ESitePlayerConfig {
     this.autoPlay = false,
     this.preventScreenshots = false,
     this.preventScreenRecording = false,
+    this.primaryColor,
+    this.secondaryColor,
   });
 }
