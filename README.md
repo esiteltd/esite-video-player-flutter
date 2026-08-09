@@ -1,406 +1,202 @@
 # esite_flutter_player
 
-A secure, production-ready Flutter plugin for DRM-protected video playback on Android using Media3 ExoPlayer with Widevine DRM support.
+Secure video playback for Flutter, backed by the **eSITE Video Service**.
 
-## 🚀 Quick Start - Testing the Example
+Give the plugin a video UUID. It asks your backend what that video is, works out whether it is unprotected, **Lite DRM** or **Full DRM**, and plays it in a native fullscreen player on Android and iOS.
 
-**The example app includes 7 comprehensive test scenarios!** To run it:
+```dart
+ESitePlayer.configure(
+  baseUrl: 'https://api.myapp.com',
+  tokenProvider: () async => auth.accessToken,
+);
 
-```bash
-cd example
-flutter clean && rm -rf build/ .dart_tool/ android/.gradle/
-flutter pub get
-flutter run
+final controller = await ESitePlayerController.forVideo(videoId);
+await controller.launchPlayer();
 ```
 
-Then tap **"✅ Valid Auth (Should Work)"** to test DRM-protected video playback!
+No manifest URLs, no license servers, no DRM branching in your app.
 
-📖 **See [QUICK_START.md](QUICK_START.md) for detailed instructions**
-📊 **See [CHANGES_SUMMARY.md](CHANGES_SUMMARY.md) for recent updates**
+---
 
-## Features
+## How it fits together
 
-- ✅ **DRM Support**: Widevine DRM via Axinom integration
-- ✅ **Security**: Automatic screenshot and screen recording blocking (FLAG_SECURE)
-- ✅ **Playback Controls**: Play, pause, seek, speed control (0.5x-4x)
-- ✅ **Track Selection**: Video quality selection
-- ✅ **Subtitle Support**: Enable/disable subtitles
-- ✅ **Volume Control**: Volume adjustment and mute
-- ✅ **Playlist Support**: Next/previous media item navigation
-- ✅ **Event Streams**: Real-time playback state, DRM events, and error handling
-- ✅ **Production Ready**: Secure, no DRM data logging, proper lifecycle management
+```
+Flutter app ──access token──▶ your backend ──X-API-Key──▶ eSITE Video Service
+  (plugin)                    (server-to-server)
+```
 
-## Platform Support
+The plugin **never talks to the eSITE service directly**. Your backend holds the tenant API key and calls `GET /api/v1/videos/{id}` on eSITE; the plugin authenticates to *your* backend with a token your app already has. The API key never ships inside the app, where it would be extractable and would grant write access to your tenant.
 
-- ✅ **Android**: Full support (Media3 ExoPlayer)
-- ❌ **iOS**: Not yet implemented (planned for future release)
+## Protection modes
 
-## Installation
+| `drm_type` | Delivery | What the player does | Android | iOS |
+|---|---|---|---|---|
+| *(none)* | HLS | Plays directly | ✅ | ✅ |
+| `lite` | HLS with AES-128 encrypted segments | Player fetches the key from the playlist's key route itself — no DRM session | ✅ | ✅ |
+| `full` | DASH + license server | Opens a Widevine session | ✅ | ❌ *(see below)* |
 
-Add `esite_flutter_player` to your `pubspec.yaml`:
+**Lite DRM is standard HLS AES-128 encryption.** Both ExoPlayer and AVPlayer handle it natively, which is why it needs no DRM configuration, no license server, and no extra headers — the playback URL is token-authenticated in the URL itself.
+
+### Full DRM on iOS
+
+Full-DRM content is packaged as DASH + Widevine. AVPlayer plays neither. Supporting it on iOS requires the video service to *also* package CBCS fMP4 HLS and expose a FairPlay SPC/CKC endpoint plus an application certificate — **that backend work is pending**.
+
+Until then, `forVideo()` throws `ESitePlayerErrorCode.unsupportedOnPlatform` for full-DRM videos on iOS rather than showing a black screen. The FairPlay wiring is stubbed in `ios/Classes/ESiteContentKeyManager.swift`, ready for the certificate fetch and CKC exchange when the backend ships.
+
+---
+
+## Install
 
 ```yaml
 dependencies:
-  esite_flutter_player: ^0.1.0
+  esite_flutter_player: ^0.3.0
 ```
 
-Then run:
+**Android:** minSdk 24. Nothing else to configure.
+**iOS:** deployment target 13.0.
 
-```bash
-flutter pub get
-```
+## Usage
 
-## Quick Start
-
-### 1. Basic Setup
+### 1. Configure once
 
 ```dart
-import 'package:esite_flutter_player/esite_flutter_player.dart';
+void main() {
+  ESitePlayer.configure(
+    baseUrl: 'https://api.myapp.com',        // your backend
+    videoPath: '/videos/{id}/playback',      // default; override to match your routes
+    tokenProvider: () async => auth.accessToken,
+  );
+  runApp(const MyApp());
+}
+```
 
-// Create player configuration
-final config = ESitePlayerConfig(
-  sourceUrl: 'https://your-cdn.com/video.mpd',
-  drm: ESiteDrmConfig(
-    licenseUrl: 'https://license.axinom.com/widevine',
-    scheme: ESiteDrmScheme.widevine,
-    licenseHeaders: {
-      'X-AxDRM-Message': 'your-license-header',
-    },
+`tokenProvider` is called per request, so a refreshed token is picked up without reconfiguring.
+
+### 2. Play by UUID
+
+```dart
+final controller = await ESitePlayerController.forVideo(
+  '4c2f5fdd-d88e-4d2b-b03d-039edef920a7',
+  options: const ESitePlaybackOptions(
+    autoPlay: true,
+    preventScreenRecording: true,
+    primaryColor: Color(0xFF6C63FF),
+    secondaryColor: Colors.white,
   ),
-  autoPlay: false,
 );
 
-// Create controller
-final controller = ESitePlayerController(config);
+controller.stateStream.listen((state) => print('State: ${state.name}'));
+controller.errorStream.listen((error) => print('Error: ${error.message}'));
 
-// Initialize player
-await controller.initialize();
+await controller.launchPlayer();
 ```
 
-### 2. Display Video Player
+Call `controller.dispose()` when you are finished with it.
+
+### 3. Handle failures
+
+`forVideo()` throws `ESitePlayerException` when resolution fails:
+
+| Code | Meaning |
+|---|---|
+| `unauthorized` | Your backend rejected the token (401/403) |
+| `videoNotFound` | No video with that UUID (404) |
+| `videoNotReady` | Still transcoding or packaging |
+| `invalidSource` | Ready, but nothing playable has been presigned yet |
+| `unsupportedOnPlatform` | Full DRM on iOS |
+| `configurationError` | `configure()` not called, or an unreadable response |
+| `networkError` | Backend unreachable or timed out |
 
 ```dart
-ESitePlayerView(controller: controller)
-```
-
-### 3. Control Playback
-
-```dart
-// Play
-await controller.play();
-
-// Pause
-await controller.pause();
-
-// Seek to position
-await controller.seekTo(Duration(seconds: 30));
-
-// Seek forward/backward
-await controller.seekForward(Duration(seconds: 10));
-await controller.seekBackward(Duration(seconds: 10));
-
-// Set playback speed (0.5x to 4x)
-await controller.setPlaybackSpeed(1.5);
-
-// Volume control
-await controller.setVolume(0.8);
-await controller.setMuted(true);
-
-// Track selection
-final tracks = await controller.getAvailableVideoTracks();
-await controller.setVideoTrack(tracks[0]['id']);
-
-// Subtitle control
-await controller.setSubtitleEnabled(true);
-
-// Playlist navigation
-if (await controller.hasNext()) {
-  await controller.next();
+try {
+  final controller = await ESitePlayerController.forVideo(videoId);
+  await controller.launchPlayer();
+} on ESitePlayerException catch (e) {
+  showSnackBar('${e.code.name}: ${e.message}');
 }
 ```
 
-### 4. Listen to Events
+## What your backend must return
 
-```dart
-// Playback state
-controller.stateStream.listen((state) {
-  print('Player state: $state');
-  // States: idle, initializing, buffering, ready, playing, paused, completed, error
-});
+By default the plugin expects the eSITE `videoDetail` shape, so a backend that **proxies the eSITE response straight through needs no mapping code**:
 
-// DRM events
-controller.drmStream.listen((event) {
-  print('DRM event: ${event.type}');
-  // Types: licenseRequested, licenseAcquired, licenseFailed
-});
-
-// Errors
-controller.errorStream.listen((error) {
-  print('Error: ${error.code} - ${error.message}');
-});
-```
-
-### 5. Cleanup
-
-```dart
-@override
-void dispose() {
-  controller.dispose();
-  super.dispose();
+```json
+{
+  "id": "4c2f5fdd-d88e-4d2b-b03d-039edef920a7",
+  "status": "ready",
+  "drm_type": "lite",
+  "playback_url": "https://…/master.m3u8?token=…",
+  "renditions": []
 }
 ```
 
-## Complete Example
+For **full DRM**, eSITE never returns license material, so your backend must enrich the response:
 
-See the [example app](example/lib/main.dart) for a full implementation with:
-- Embedded player view
-- Playback controls UI
-- State monitoring
-- Error handling
-- Track selection
-- Volume control
-
-## Documentation
-
-- 📘 [Getting Started Guide](doc/getting_started.md) - Step-by-step setup and usage
-- 📗 [API Reference](doc/api_reference.md) - Complete API documentation
-- 🔒 [Security Notes](doc/security.md) - Security best practices and DRM details
-- 🧪 [Test Plan](TEST_PLAN.md) - Comprehensive testing strategy and test cases
-- ✅ [Test Checklist](TEST_CHECKLIST.md) - Quick reference for test execution
-
-## Security Features
-
-### Screenshot & Screen Recording Protection
-
-The plugin automatically enables `FLAG_SECURE` when playback starts, preventing:
-- Screenshots
-- Screen recording
-- Recent apps preview capture
-
-Security is automatically:
-- **Enabled** when playback starts
-- **Disabled** when playback pauses or ends
-- **Disabled** when the player is disposed
-
-This ensures security is only active during actual playback, not affecting the rest of your app.
-
-## DRM Configuration
-
-### Axinom Widevine Setup
-
-```dart
-ESiteDrmConfig(
-  licenseUrl: 'https://license.axinom.com/widevine',
-  scheme: ESiteDrmScheme.widevine,
-  licenseHeaders: {
-    'X-AxDRM-Message': 'your-license-header',
-    'Authorization': 'Bearer your-token',
-  },
-)
+```json
+{
+  "drm_type": "full",
+  "playback_url": "https://…/manifest.mpd?token=…",
+  "license_server_url": "https://…/widevine",
+  "entitlement_message": "…",
+  "license_header_name": "X-Entitlement-Message"
+}
 ```
 
-### Supported DRM Schemes
+A nested `"drm": { "license_url": …, "headers": {…} }` object is accepted too.
 
-- `ESiteDrmScheme.widevine` - Widevine DRM (Axinom)
+### A different response shape
 
-## API Reference
-
-### ESitePlayerController
-
-Main controller for video playback.
-
-#### Methods
-
-- `Future<void> initialize()` - Initialize the player with configuration
-- `Future<void> play()` - Start playback
-- `Future<void> pause()` - Pause playback
-- `Future<void> seekTo(Duration position)` - Seek to specific position
-- `Future<void> seekForward(Duration offset)` - Seek forward by offset
-- `Future<void> seekBackward(Duration offset)` - Seek backward by offset
-- `Future<void> setPlaybackSpeed(double speed)` - Set speed (0.5-4.0)
-- `Future<void> setVolume(double volume)` - Set volume (0.0-1.0)
-- `Future<void> setMuted(bool muted)` - Mute/unmute
-- `Future<bool> isMuted()` - Check if muted
-- `Future<double> getVolume()` - Get current volume
-- `Future<List<Map<String, dynamic>>> getAvailableVideoTracks()` - Get video tracks
-- `Future<void> setVideoTrack(String trackId)` - Select video track
-- `Future<void> setSubtitleEnabled(bool enabled)` - Enable/disable subtitles
-- `Future<bool> isSubtitleEnabled()` - Check subtitle status
-- `Future<bool> hasNext()` - Check if next item available
-- `Future<bool> hasPrevious()` - Check if previous item available
-- `Future<void> next()` - Go to next media item
-- `Future<void> previous()` - Go to previous media item
-- `Future<void> dispose()` - Dispose player and cleanup
-
-#### Properties
-
-- `ESitePlayerState currentState` - Current playback state
-- `Stream<ESitePlayerState> stateStream` - Playback state stream
-- `Stream<ESiteDrmEvent> drmStream` - DRM events stream
-- `Stream<ESitePlayerError> errorStream` - Error stream
-
-### ESitePlayerConfig
-
-Player configuration.
+Supply a mapper:
 
 ```dart
-ESitePlayerConfig({
-  required String sourceUrl,
-  required ESiteDrmConfig drm,
-  Map<String, String>? headers,
-  bool autoPlay = false,
-  bool preventScreenshots = false,
-  bool preventScreenRecording = false,
-})
+ESitePlayer.configure(
+  baseUrl: 'https://api.myapp.com',
+  tokenProvider: () async => auth.accessToken,
+  mapper: (json) => ESiteResolvedSource(
+    url: json['stream_url'] as String,
+    streamFormat: ESiteStreamFormat.hls,
+    drmType: ESiteDrmType.lite,
+  ),
+);
 ```
 
-### ESiteDrmConfig
+## Playback control
 
-DRM configuration.
+While the player is on screen: `play()`, `pause()`, `seekTo()`, `seekForward()`, `seekBackward()`, `setPlaybackSpeed()`, `setVolume()`, `setMuted()`, `getAvailableVideoTracks()`, `setVideoTrack()`, `setSubtitleEnabled()`. With no player on screen these fail with a `NO_PLAYER` `PlatformException`.
 
-```dart
-ESiteDrmConfig({
-  required String licenseUrl,
-  required ESiteDrmScheme scheme,
-  Map<String, String>? licenseHeaders,
-})
-```
+The native players already provide full on-screen controls — play/pause, ±10s double-tap seek with animation, scrubber, speed, quality and audio-track menus — so most apps never call these.
 
-### ESitePlayerState
+## Security
 
-Playback state enum:
-- `idle` - Initial state
-- `initializing` - Player initializing
-- `buffering` - Buffering content
-- `ready` - Ready to play
-- `playing` - Currently playing
-- `paused` - Paused
-- `completed` - Playback completed
-- `error` - Error occurred
+`ESitePlaybackOptions.preventScreenshots` / `preventScreenRecording`:
 
-### ESiteDrmEvent
+- **Android** sets `FLAG_SECURE`, which genuinely blocks both screenshots and screen recording.
+- **iOS has no equivalent.** There is no API to block screenshots — they can only be detected after the fact. What the plugin *does* enforce is capture: while the screen is being recorded or mirrored (`UIScreen.isCaptured`), the video is hidden and playback pauses. Treat iOS screenshot prevention as unavailable, not merely weaker.
 
-DRM event with type and optional message:
-- `licenseRequested` - License request initiated
-- `licenseAcquired` - License successfully acquired
-- `licenseFailed` - License acquisition failed
-
-### ESitePlayerError
-
-Error with code and message:
-- `invalidSource` - Invalid source URL
-- `drmFailure` - DRM-related failure
-- `networkError` - Network error
-- `playbackError` - Playback error
-- `unknown` - Unknown error
-
-## Limitations
-
-### Emulator Support
-
-DRM-protected content may not work on Android emulators due to:
-- Lack of Widevine L1 support
-- Missing hardware security features
-
-**Recommendation**: Test on physical Android devices.
-
-### iOS Support
-
-iOS support is planned for a future release. The plugin currently throws `UnsupportedError` on iOS.
+Playback URLs are short-lived (the service issues 6-hour tokens for lite/plain, 15-minute presigned URLs for renditions). Resolve immediately before playing rather than caching.
 
 ## Testing
 
-This plugin includes comprehensive test coverage across multiple levels:
-
-### Running Tests
-
 ```bash
-# Run all unit tests
-flutter test
-
-# Run with coverage report
-flutter test --coverage
-
-# Run integration tests (requires device/emulator)
-cd example
-flutter test integration_test/
-
-# Run Android native tests
-cd example/android
-./gradlew test
-
-# Generate HTML coverage report
-genhtml coverage/lcov.info -o coverage/html
-open coverage/html/index.html
+flutter analyze
+flutter test                     # resolver, API client and configuration
+cd example && flutter test       # example UI smoke tests
 ```
 
-### Test Coverage
+The example app ships a **built-in stub backend** (`example/lib/stub_backend.dart`) so it runs with no credentials and no server of your own. It covers lite, plain, full-DRM, not-ready, not-found and unauthorized paths. Toggle it off to point at a real backend.
 
-The plugin maintains high test coverage across:
-- ✅ **Unit Tests** (70%): Controller, configuration, events, platform layer
-- ✅ **Widget Tests** (20%): Player view and UI components
-- ✅ **Integration Tests** (10%): End-to-end playback, DRM, security
+To exercise genuine Lite DRM playback, replace `_placeholderHls` in `example/lib/main.dart` with a real `playback_url` from `GET /api/v1/videos/{id}` — the stub cannot mint one, since presigning happens server-side behind the tenant API key.
 
-**Coverage Goals:**
-- Overall: >85%
-- Controller: >95%
-- Configuration: 100%
-- Events/Errors: 100%
+## Platform notes
 
-### Test Documentation
+Playback runs in a dedicated native screen — an Android `Activity`, an iOS `UIViewController` — not a Flutter `PlatformView`. Widevine L1 needs a `SurfaceView` on the native window, and texture-based compositing breaks the secure video path (black screen on physical devices). `ESitePlayerView` is a launcher widget, not a video surface.
 
-For detailed testing information, see:
-- [Test Plan](TEST_PLAN.md) - Complete testing strategy with all test cases
-- [Test Checklist](TEST_CHECKLIST.md) - Quick reference for test execution
+## Documentation
 
-### Test Categories
-
-1. **Configuration Tests**: Player and DRM configuration validation
-2. **Controller Tests**: Playback control, state management, streams
-3. **Platform Tests**: Method channel and event channel communication
-4. **Widget Tests**: UI component rendering
-5. **Integration Tests**: Complete workflows, DRM license acquisition, security
-6. **Native Tests**: Android ExoPlayer and SecurityManager
-7. **Error Handling**: All error scenarios and recovery
-8. **Edge Cases**: Boundary conditions and unusual inputs
-
-## Troubleshooting
-
-### DRM License Fails
-
-1. Verify license URL is correct
-2. Check license headers (especially Axinom headers)
-3. Ensure device supports Widevine L1 or L3
-4. Test on physical device (not emulator)
-
-### Playback Doesn't Start
-
-1. Check network connectivity
-2. Verify source URL is accessible
-3. Check DRM configuration
-4. Monitor error stream for details
-
-### Security Not Working
-
-- Security (FLAG_SECURE) is only enabled during active playback
-- Ensure player is in playing state
-- Check that activity is properly attached
-
-## Contributing
-
-Contributions are welcome! Please ensure:
-- Code follows Dart/Flutter style guidelines
-- Tests are included for new features
-- Documentation is updated
+- [Getting started](doc/getting_started.md)
+- [API reference](doc/api_reference.md)
+- [Security](doc/security.md)
 
 ## License
 
-See [LICENSE](LICENSE) file for details.
-
-## Support
-
-For issues and questions:
-- Open an issue on GitHub
-- Check the [example app](example/lib/main.dart) for usage patterns
-
----**Note**: This plugin is designed for production use with secure DRM content. Always test thoroughly on physical devices before deploying.
+See [LICENSE](LICENSE).

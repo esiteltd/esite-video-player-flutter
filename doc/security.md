@@ -1,340 +1,67 @@
-# Security Notes - eSite Flutter Player
+# Security
 
-Important security considerations when using the eSite Flutter Player.
+## Credential topology
 
-## Screenshot and Screen Recording Protection
-
-### How It Works
-
-The player uses Android's `FLAG_SECURE` to prevent content leakage:
-
-```kotlin
-window.setFlags(
-  WindowManager.LayoutParams.FLAG_SECURE,
-  WindowManager.LayoutParams.FLAG_SECURE
-)
+```
+Flutter app ──access token──▶ your backend ──X-API-Key──▶ eSITE Video Service
+  (plugin)                    (server-to-server)
 ```
 
-### What It Protects Against
+The plugin never contacts the eSITE service. This is deliberate:
 
-✅ **Protected:**
-- Screenshots via power + volume down
-- Screenshots via accessibility services
-- Screen recording apps (most)
-- Recent apps preview/screenshot
-- Display mirroring (some scenarios)
+- The eSITE tenant API key authenticates at **UPLOADER or higher**, which includes upload and (for EDITOR/ADMIN) delete. It is not a read-only playback credential.
+- Anything shipped in an APK or IPA is extractable. Binaries are not a secret store.
+- The token the plugin sends is scoped to your own backend, so you control its lifetime, audience and revocation.
 
-❌ **Not Protected:**
-- Physical cameras pointed at screen
-- Some rooted devices with specialized tools
-- Hardware-level screen capture
-- External HDMI capture devices
-
-### Behavior
+**Do not** add an eSITE API key to `ESitePlayer.configure(headers: …)` to "simplify" integration. That defeats the whole arrangement.
 
-The security flag is managed automatically:
-
-- **Enabled:** When video starts playing
-- **Disabled:** When video is paused
-- **Disabled:** When video completes
-- **Disabled:** When player is disposed
+## Playback URLs are short-lived
 
-This ensures security only affects the app during active playback.
+The service issues:
 
-### Configuration
+- **6-hour tokens** on the HLS playback endpoint (lite and plain)
+- **15-minute presigned URLs** for renditions and thumbnails
 
-```dart
-ESitePlayerConfig(
-  preventScreenshots: true,      // Blocks screenshots
-  preventScreenRecording: true,  // Blocks screen recording
-  // ...
-)
-```
+Resolve immediately before playing. Do not cache a resolved `ESiteResolvedSource` across sessions or persist it — it will expire, and while valid it is a bearer credential for the content.
 
-Both flags use the same `FLAG_SECURE` mechanism. Set both to `true` for maximum protection.
+`tokenProvider` is invoked per request precisely so that a rotated app token is used without reconfiguration.
 
-### Limitations
+## Protection modes
 
-1. **Whole Activity Protection**
-   - `FLAG_SECURE` protects the entire activity, not just the video
-   - Your app's UI will also be blocked from screenshots during playback
+### Lite DRM
 
-2. **Android Version Differences**
-   - Behavior may vary across Android versions
-   - Some screen recorders bypass FLAG_SECURE on older devices
+HLS with AES-128 encrypted segments. The key is served from a key route embedded in the token-authenticated playlist, and the player fetches it directly.
 
-3. **Root/Custom ROMs**
-   - Rooted devices may bypass security
-   - Custom ROMs may not enforce FLAG_SECURE
+This protects content **in transit and at rest in storage**. It is not a DRM system: the key reaches the player in the clear over TLS, and there is no device binding, no output protection and no revocation. Use it where the threat model is casual copying, not determined extraction.
 
-4. **Development Impact**
-   - You cannot take screenshots for debugging during playback
-   - Disable in development builds if needed
+### Full DRM
 
-### Testing
-
-To verify screenshot protection works:
+DASH packaged with Widevine, keys issued by a license server per playback session. This gives device binding, security-level enforcement and revocation.
 
-1. Start playback
-2. Try taking a screenshot (Power + Volume Down)
-3. Screenshot should fail or show black screen
-4. Pause playback
-5. Screenshot should work normally again
+On Android the plugin reports the device's Widevine security level as a `licenseAcquired` DRM event for diagnostics. It does **not** force a level — a previous version attempted an L1→L3 fallback that was dead code and never affected playback; the honest position is that ExoPlayer selects the level and the license server enforces policy.
 
-## DRM Security
+## Screenshot and recording protection
 
-### What We Protect
+| | Android | iOS |
+|---|---|---|
+| Block screenshots | ✅ `FLAG_SECURE` | ❌ **Not possible** |
+| Block screen recording | ✅ `FLAG_SECURE` | ⚠️ Video hidden and paused while captured |
+| Block mirroring / AirPlay capture | ✅ | ⚠️ Same mechanism |
 
-✅ **Protected:**
-- DRM license keys (never exposed to Flutter)
-- License server communication (encrypted)
-- Decoded video frames (secure rendering path)
-- DRM session lifecycle
+Android's `FLAG_SECURE` is enforced by the window compositor and genuinely prevents capture.
 
-❌ **Not Logged:**
-- Raw media URLs (not printed to console)
-- DRM keys or license payloads
-- Sensitive license headers
+iOS offers no equivalent. The plugin observes `UIScreen.isCaptured` and, while capture is active, hides the video layer and pauses playback. Screenshots can only be detected *after* they are taken (`userDidTakeScreenshotNotification`) — never prevented.
 
-### Secure Decoder Path
+Do not present iOS screenshot protection to stakeholders as equivalent to Android's. If your content genuinely requires it, iOS cannot deliver it at any layer, and no plugin can change that.
 
-The player uses ExoPlayer's secure decoder path when available:
+## Transport
 
-- Hardware-backed DRM (Widevine L1)
-- Secure video pipeline
-- Protected content buffers
-- No plaintext media access
+All playback and license traffic must be HTTPS. Android blocks cleartext by default and surfaces `ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED` as a `networkError`; iOS App Transport Security does the same. Do not add cleartext exemptions to make a staging environment work — terminate TLS there instead.
 
-### Best Practices
+## Error messages
 
-1. **Never Log Sensitive Data**
-   ```dart
-   // ❌ DON'T DO THIS
-   print('License URL: ${config.drm.licenseUrl}');
-   print('DRM Token: ${config.drm.licenseHeaders}');
-   
-   // ✅ DO THIS
-   debugPrint('Initializing DRM player');
-   ```
+Resolution errors include the backend's RFC-7807 `detail` when present, so failures are diagnosable. Make sure your backend does not leak internal details (stack traces, upstream URLs, tenant identifiers) into that field, since it reaches the client.
 
-2. **Fetch DRM Tokens Securely**
-   ```dart
-   // ✅ Fetch from your backend
-   final token = await api.getDrmToken(videoId);
-   
-   // ❌ Don't hardcode
-   final token = 'eyJhbGc...'; // Never do this!
-   ```
+## Reporting a vulnerability
 
-3. **Token Expiration**
-   - Implement token refresh logic
-   - Handle license renewal for long playback sessions
-   - Monitor DRM events for license failures
-
-4. **HTTPS Only**
-   - Always use HTTPS for license servers
-   - Use HTTPS for media URLs
-   - Never transmit DRM tokens over HTTP
-
-## Network Security
-
-### Required Permissions
-
-The plugin requires these permissions (automatically included):
-
-```xml
-<uses-permission android:name="android.permission.INTERNET" />
-<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-```
-
-### Network Security Config
-
-For production apps, configure network security in `android/app/src/main/res/xml/network_security_config.xml`:
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<network-security-config>
-    <base-config cleartextTrafficPermitted="false">
-        <trust-anchors>
-            <certificates src="system" />
-        </trust-anchors>
-    </base-config>
-</network-security-config>
-```
-
-Reference it in your manifest:
-
-```xml
-<application
-    android:networkSecurityConfig="@xml/network_security_config">
-```
-
-This ensures:
-- No cleartext (HTTP) traffic
-- Only system-trusted certificates
-- Protection against MITM attacks
-
-## Widevine Security Levels
-
-### L1 (Hardware-backed)
-
-✅ **Highest Security:**
-- Crypto operations in Trusted Execution Environment (TEE)
-- Secure video path
-- Maximum content protection
-
-**Requirements:**
-- Physical device with Widevine L1 certification
-- Hardware security support
-
-### L3 (Software-based)
-
-⚠️ **Lower Security:**
-- Crypto operations in software
-- Less secure than L1
-- May not meet some content provider requirements
-
-**Common on:**
-- Emulators
-- Older/budget devices
-- Non-certified devices
-
-### Checking Security Level
-
-The player automatically uses the highest available security level. Content providers may restrict playback based on security level.
-
-## Emulator Limitations
-
-### Why DRM Fails on Emulators
-
-Most Android emulators:
-- Don't have Widevine L1 support
-- May only support L3 or no Widevine at all
-- Lack hardware security features
-- Can't establish secure video path
-
-### Development Recommendations
-
-1. **Use Physical Devices**
-   - Always test DRM on real Android devices
-   - Keep test devices with Widevine L1
-
-2. **Emulator Testing**
-   - Test non-DRM functionality on emulators
-   - Test UI, state management, error handling
-   - Use mock data for DRM scenarios
-
-3. **CI/CD**
-   - Use device farms for automated testing
-   - Firebase Test Lab, AWS Device Farm, etc.
-
-## Production Checklist
-
-Before releasing your app:
-
-- [ ] DRM tokens fetched from secure backend
-- [ ] No sensitive data logged
-- [ ] HTTPS enforced for all endpoints
-- [ ] Network security config configured
-- [ ] Screenshot protection tested on multiple devices
-- [ ] Error handling implemented for all DRM failures
-- [ ] Token refresh logic implemented
-- [ ] Tested on physical devices with Widevine L1
-- [ ] ProGuard/R8 rules configured (if using obfuscation)
-- [ ] Security review completed
-
-## ProGuard/R8 Configuration
-
-If using code obfuscation, add these rules to `android/app/proguard-rules.pro`:
-
-```proguard
-# eSite Flutter Player
--keep class com.esite.player.** { *; }
-
-# ExoPlayer
--keep class androidx.media3.** { *; }
--dontwarn androidx.media3.**
-
-# Widevine
--keep class com.google.android.exoplayer2.drm.** { *; }
-```
-
-## Handling Security Events
-
-Monitor security-related events:
-
-```dart
-controller.drmStream.listen((event) {
-  switch (event.type) {
-    case ESiteDrmEventType.licenseFailed:
-      // Log security incident
-      analytics.logSecurityEvent('drm_license_failed');
-      
-      // Show user-friendly error
-      showError('Unable to play protected content');
-      
-      // Don't expose technical details to users
-      break;
-  }
-});
-
-controller.errorStream.listen((error) {
-  if (error.code == ESitePlayerErrorCode.drmFailure) {
-    // Handle DRM failure
-    // Don't log sensitive error messages in production
-  }
-});
-```
-
-## Content Provider Requirements
-
-Different content providers have different security requirements:
-
-### Minimum Requirements
-- Widevine L3 support
-- HTTPS for all connections
-- No cleartext traffic
-
-### Standard Requirements
-- Widevine L1 support
-- Screenshot protection enabled
-- Network security config
-- Certificate pinning (optional)
-
-### Premium Requirements
-- Widevine L1 required
-- Hardware-backed keystore
-- Device attestation
-- Secure boot verification
-- Additional platform-specific protections
-
-Check your content provider's requirements and configure accordingly.
-
-## Reporting Security Issues
-
-If you discover a security vulnerability:
-
-1. **DO NOT** create a public GitHub issue
-2. **DO NOT** disclose publicly until patched
-3. Contact the package maintainers privately
-4. Provide detailed reproduction steps
-5. Allow reasonable time for fix and release
-
-## Legal Compliance
-
-Ensure your app complies with:
-
-- Content provider license agreements
-- DRM technology export regulations
-- Local privacy laws (GDPR, CCPA, etc.)
-- Platform-specific requirements (Google Play, etc.)
-
-The player provides tools for security, but you're responsible for proper implementation and compliance.
-
-## Additional Resources
-
-- [Widevine Documentation](https://www.widevine.com/)
-- [ExoPlayer Security Best Practices](https://exoplayer.dev/)
-- [Android Security Best Practices](https://developer.android.com/topic/security/best-practices)
-- [Axinom DRM Documentation](https://github.com/Axinom)
-
+Contact the eSITE team directly rather than opening a public issue.

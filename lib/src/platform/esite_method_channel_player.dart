@@ -8,7 +8,11 @@ import '../events/esite_drm_event.dart';
 import '../events/esite_player_state.dart';
 import 'esite_platform_player.dart';
 
-class ESiteAndroidPlatformPlayer implements ESitePlatformPlayer {
+/// Method-channel implementation shared by Android and iOS.
+///
+/// Both native players implement the same channel names, method names, state
+/// codes and error codes, so one Dart implementation drives both.
+class ESiteMethodChannelPlayer implements ESitePlatformPlayer {
   static const _methodChannel = MethodChannel('esite_flutter_player/methods');
 
   static const _stateChannel = EventChannel(
@@ -24,41 +28,62 @@ class ESiteAndroidPlatformPlayer implements ESitePlatformPlayer {
   Stream<ESitePlayerError>? _errorStream;
 
   @override
-  Stream<ESitePlayerState> get stateStream => _stateStream ??= _stateChannel
-      .receiveBroadcastStream()
-      .map((e) => ESitePlayerState.values[e]);
+  Stream<ESitePlayerState> get stateStream =>
+      _stateStream ??= _stateChannel.receiveBroadcastStream().map(
+        (e) => _byIndex(ESitePlayerState.values, e, ESitePlayerState.idle),
+      );
 
   @override
   Stream<ESiteDrmEvent> get drmStream =>
-      _drmStream ??= _drmChannel.receiveBroadcastStream().map(
-        (e) => ESiteDrmEvent(
-          type: ESiteDrmEventType.values[e['type']],
-          message: e['message'],
-        ),
-      );
+      _drmStream ??= _drmChannel.receiveBroadcastStream().map((e) {
+        final map = Map<String, dynamic>.from(e as Map);
+        return ESiteDrmEvent(
+          type: _byIndex(
+            ESiteDrmEventType.values,
+            map['type'],
+            ESiteDrmEventType.licenseRequested,
+          ),
+          message: map['message'] as String?,
+        );
+      });
 
   @override
   Stream<ESitePlayerError> get errorStream =>
-      _errorStream ??= _errorChannel.receiveBroadcastStream().map(
-        (e) => ESitePlayerError(
-          code: ESitePlayerErrorCode.values[e['code']],
-          message: e['message'],
-        ),
-      );
+      _errorStream ??= _errorChannel.receiveBroadcastStream().map((e) {
+        final map = Map<String, dynamic>.from(e as Map);
+        return ESitePlayerError(
+          code: _byIndex(
+            ESitePlayerErrorCode.values,
+            map['code'],
+            ESitePlayerErrorCode.unknown,
+          ),
+          message: (map['message'] as String?) ?? 'Unknown player error',
+        );
+      });
+
+  /// Guards against a native build emitting an ordinal this Dart version does
+  /// not know, which would otherwise throw inside the stream and kill it.
+  static T _byIndex<T>(List<T> values, Object? raw, T fallback) {
+    final index = raw is int ? raw : int.tryParse('$raw');
+    if (index == null || index < 0 || index >= values.length) return fallback;
+    return values[index];
+  }
 
   Map<String, dynamic> _configToMap(ESitePlayerConfig config) {
     final map = <String, dynamic>{
       'sourceUrl': config.sourceUrl,
+      'streamFormat': config.streamFormat.name,
       'headers': config.headers,
       'autoPlay': config.autoPlay,
       'preventScreenshots': config.preventScreenshots,
       'preventScreenRecording': config.preventScreenRecording,
-      'drm': {
-        'licenseUrl': config.drm.licenseUrl,
-        'scheme': config.drm.scheme.name,
-        'licenseHeaders': config.drm.licenseHeaders,
-      },
+      // Null for unprotected and Lite DRM sources; native builds the media
+      // item without a DRM configuration in that case.
+      'drm': config.drm?.toMap(),
     };
+    if (config.title != null) {
+      map['title'] = config.title;
+    }
     if (config.primaryColor != null) {
       map['primaryColor'] = config.primaryColor!.toARGB32();
     }

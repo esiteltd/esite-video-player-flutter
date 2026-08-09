@@ -1,582 +1,414 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 
 import 'package:esite_flutter_player/esite_flutter_player.dart';
 import 'package:flutter/material.dart';
 
-void main() {
-  runApp(const MyApp());
-}
+import 'stub_backend.dart';
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+/// Stand-in manifest for the stub scenarios.
+///
+/// Swap this for a real `playback_url` from `GET /api/v1/videos/{id}` to
+/// exercise genuine Lite DRM (AES-128) playback — the stub cannot mint one,
+/// since presigning happens server-side behind the tenant API key.
+const _placeholderHls =
+    'https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8';
+
+/// The lite video supplied for testing.
+const _liteVideoId = '4c2f5fdd-d88e-4d2b-b03d-039edef920a7';
+
+void main() => runApp(const ExampleApp());
+
+class ExampleApp extends StatelessWidget {
+  const ExampleApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ESite Flutter Player Demo',
-      theme: ThemeData.dark(),
-      home: const PlayerDemoPage(),
+      title: 'eSITE Player Example',
+      theme: ThemeData(
+        colorSchemeSeed: const Color(0xFF6C63FF),
+        useMaterial3: true,
+      ),
+      home: const HomePage(),
     );
   }
 }
 
-enum TestScenario {
-  validAuth,
-  esiteApi,
-  expiredAuth,
-  invalidAuth,
-  noAuth,
-  wrongScheme,
-  networkError,
-  invalidUrl,
+/// Each scenario is one stub backend response, exercising a distinct path
+/// through resolution.
+enum Scenario {
+  lite('Lite DRM', 'AES-128 encrypted HLS — plays with no DRM session'),
+  plain('No DRM', 'Unencrypted HLS'),
+  fullDrm('Full DRM', 'DASH + Widevine; unsupported on iOS'),
+  notReady('Not ready', 'Still packaging — should refuse to play'),
+  noPlaybackUrl('No playback URL', 'Ready but nothing presigned yet'),
+  notFound('Not found', 'Backend returns 404'),
+  unauthorized('Unauthorized', 'Backend returns 401');
+
+  const Scenario(this.label, this.description);
+  final String label;
+  final String description;
+
+  String get videoId => 'stub-$name';
 }
 
-extension TestScenarioExtension on TestScenario {
-  String get description {
-    switch (this) {
-      case TestScenario.validAuth:
-        return 'Valid Auth (Should Work)';
-      case TestScenario.esiteApi:
-        return 'ESite API (Live Fetch)';
-      case TestScenario.expiredAuth:
-        return 'Expired Token (DRM Error)';
-      case TestScenario.invalidAuth:
-        return 'Invalid License URL (Network Error)';
-      case TestScenario.noAuth:
-        return 'Missing Auth Header (DRM Error)';
-      case TestScenario.wrongScheme:
-        return 'Wrong DRM Scheme (Error)';
-      case TestScenario.networkError:
-        return 'Network Error (Invalid Domain)';
-      case TestScenario.invalidUrl:
-        return 'Invalid URL Format (Error)';
-    }
-  }
-}
+Map<String, StubResponse> _stubResponses() => {
+  _liteVideoId: const StubResponse(
+    body: {
+      'id': _liteVideoId,
+      'name': 'Lite DRM sample',
+      'status': 'ready',
+      'drm_type': 'lite',
+      'playback_url': _placeholderHls,
+      'renditions': [],
+    },
+  ),
+  Scenario.lite.videoId: const StubResponse(
+    body: {
+      'id': 'stub-lite',
+      'name': 'Lite DRM sample',
+      'status': 'ready',
+      'drm_type': 'lite',
+      'playback_url': _placeholderHls,
+      'renditions': [],
+    },
+  ),
+  Scenario.plain.videoId: const StubResponse(
+    body: {
+      'id': 'stub-plain',
+      'name': 'Unprotected sample',
+      'status': 'ready',
+      'drm_type': null,
+      'playback_url': _placeholderHls,
+      'renditions': [],
+    },
+  ),
+  Scenario.fullDrm.videoId: const StubResponse(
+    body: {
+      'id': 'stub-fullDrm',
+      'name': 'Full DRM sample',
+      'status': 'ready',
+      'drm_type': 'full',
+      'playback_url': 'https://cdn.example.com/manifest.mpd?token=stub',
+      'license_server_url': 'https://license.example.com/widevine',
+      'entitlement_message': 'stub-entitlement-token',
+      'renditions': [],
+    },
+  ),
+  Scenario.notReady.videoId: const StubResponse(
+    body: {
+      'id': 'stub-notReady',
+      'name': 'Still packaging',
+      'status': 'packaging',
+      'drm_type': 'lite',
+      'playback_url': null,
+      'renditions': [],
+    },
+  ),
+  Scenario.noPlaybackUrl.videoId: const StubResponse(
+    body: {
+      'id': 'stub-noPlaybackUrl',
+      'name': 'Nothing presigned',
+      'status': 'ready',
+      'drm_type': 'lite',
+      'playback_url': null,
+      'renditions': [],
+    },
+  ),
+  Scenario.unauthorized.videoId: const StubResponse(
+    status: 401,
+    body: {'detail': 'access token expired'},
+  ),
+};
 
-class PlayerDemoPage extends StatefulWidget {
-  const PlayerDemoPage({super.key});
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
 
   @override
-  State<PlayerDemoPage> createState() => _PlayerDemoPageState();
+  State<HomePage> createState() => _HomePageState();
 }
 
-class _PlayerDemoPageState extends State<PlayerDemoPage> {
-  ESitePlayerController? controller;
-  ESitePlayerState _currentState = ESitePlayerState.idle;
-  String? _errorMessage;
-  final List<String> _eventLog = [];
+class _HomePageState extends State<HomePage> {
+  final _stub = StubBackend(responses: _stubResponses());
+  final _baseUrlController = TextEditingController();
+  final _tokenController = TextEditingController();
+  final _videoIdController = TextEditingController(text: _liteVideoId);
 
-  StreamSubscription<ESitePlayerState>? _stateSubscription;
-  StreamSubscription<ESiteDrmEvent>? _drmSubscription;
-  StreamSubscription<ESitePlayerError>? _errorSubscription;
+  bool _useStub = true;
+  bool _busy = false;
+  String? _stubBaseUrl;
 
-  static const int _maxEventLogSize = 30;
+  ESitePlayerController? _controller;
+  final _log = <String>[];
+  final _subscriptions = <StreamSubscription<dynamic>>[];
 
-  void _addToLog(String message) {
+  @override
+  void initState() {
+    super.initState();
+    _startStub();
+  }
+
+  Future<void> _startStub() async {
+    final url = await _stub.start();
     if (!mounted) return;
-    setState(() {
-      _eventLog.insert(
-        0,
-        '${DateTime.now().toString().substring(11, 19)} - $message',
-      );
-      if (_eventLog.length > _maxEventLogSize) {
-        _eventLog.removeRange(_maxEventLogSize, _eventLog.length);
-      }
-    });
+    setState(() => _stubBaseUrl = url);
+    _addLog('Stub backend listening on $url');
+    _applyConfiguration();
   }
 
-  bool _isLoading = false;
+  /// The plugin talks to the client app's own backend. The stub stands in for
+  /// it here; in production this is your server, which holds the eSITE API key.
+  void _applyConfiguration() {
+    final baseUrl = _useStub ? _stubBaseUrl : _baseUrlController.text.trim();
+    if (baseUrl == null || baseUrl.isEmpty) return;
 
-  void _launchScenario(TestScenario scenario) async {
-    _cancelSubscriptions();
-    controller?.dispose();
-
-    setState(() {
-      _errorMessage = null;
-      _currentState = ESitePlayerState.idle;
-      _eventLog.clear();
-      _isLoading = false;
-    });
-
-    _addToLog('Launching scenario: ${scenario.name}');
-
-    ESitePlayerConfig config;
-
-    if (scenario == TestScenario.esiteApi) {
-      setState(() => _isLoading = true);
-      _addToLog('Fetching entitlement from ESite API...');
-      try {
-        config = await _fetchEsiteConfig();
-        if (!mounted) return;
-        _addToLog('API response received, launching player');
-      } catch (e) {
-        if (!mounted) return;
-        setState(() {
-          _isLoading = false;
-          _errorMessage = 'API fetch failed: $e';
-        });
-        _addToLog('Error: API fetch failed - $e');
-        return;
-      }
-      setState(() => _isLoading = false);
-    } else {
-      config = _getConfigForScenario(scenario);
-    }
-
-    controller = ESitePlayerController(config);
-
-    _stateSubscription = controller!.stateStream.listen((state) {
-      if (mounted) {
-        setState(() {
-          _currentState = state;
-        });
-        _addToLog('State: ${state.name}');
-      }
-    });
-
-    _drmSubscription = controller!.drmStream.listen((event) {
-      _addToLog('DRM: ${event.type.name} - ${event.message ?? ''}');
-    });
-
-    _errorSubscription = controller!.errorStream.listen((error) {
-      _addToLog('Error: ${error.code.name} - ${error.message}');
-      if (mounted) {
-        setState(() {
-          _errorMessage = '${error.code.name}: ${error.message}';
-        });
-      }
-    });
-
-    controller!.launchPlayer();
+    ESitePlayer.configure(
+      baseUrl: baseUrl,
+      tokenProvider: () async =>
+          _useStub ? 'stub-token' : _tokenController.text.trim(),
+    );
   }
 
-  Future<ESitePlayerConfig> _fetchEsiteConfig() async {
-    final client = HttpClient();
+  Future<void> _play(String videoId) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+
+    _applyConfiguration();
+    await _disposeController();
+
     try {
-      final request = await client.getUrl(Uri.parse(
-        'https://video-service.esite-lab.com/api/v1/public/videos/c03016d41f341bc4452ac8e610670a3d/widevine?quality=360',
-      ));
-      request.headers.set('Api-Key', 'sk_test_dfisa02dikbl');
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-
-      if (response.statusCode != 200) {
-        throw Exception('HTTP ${response.statusCode}: $body');
-      }
-
-      final json = jsonDecode(body) as Map<String, dynamic>;
-      final entitlementMessage = json['entitlement_message'] as String;
-      final licenseServerUrl = json['license_server_url'] as String;
-      final manifestUrl = json['manifest_url'] as String;
-
-      return ESitePlayerConfig(
-        sourceUrl: manifestUrl,
-        drm: ESiteDrmConfig(
-          licenseUrl: licenseServerUrl,
-          scheme: ESiteDrmScheme.widevine,
-          licenseHeaders: {
-            'X-AxDRM-Message': entitlementMessage,
-          },
-        ),
-        autoPlay: true,
-        preventScreenshots: true,
-        preventScreenRecording: true,
-        primaryColor: const Color(0xFF6C63FF),
-        secondaryColor: const Color(0xFFFFFFFF),
-      );
-    } finally {
-      client.close();
-    }
-  }
-
-  void _cancelSubscriptions() {
-    _stateSubscription?.cancel();
-    _drmSubscription?.cancel();
-    _errorSubscription?.cancel();
-    _stateSubscription = null;
-    _drmSubscription = null;
-    _errorSubscription = null;
-  }
-
-  ESitePlayerConfig _getConfigForScenario(TestScenario scenario) {
-    switch (scenario) {
-      case TestScenario.esiteApi:
-        throw StateError('esiteApi scenario is handled via async fetch');
-      case TestScenario.validAuth:
-        return ESitePlayerConfig(
-          sourceUrl:
-              'https://media.axprod.net/TestVectors/Cmaf/protected_1080p_h264_cbcs/manifest.mpd',
-          drm: ESiteDrmConfig(
-            licenseUrl:
-                'https://drm-widevine-licensing.axprod.net/AcquireLicense?AxDrmMessage=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ewogICJ2ZXJzaW9uIjogMSwKICAiY29tX2tleV9pZCI6ICI2OWU1NDA4OC1lOWUwLTQ1MzAtOGMxYS0xZWI2ZGNkMGQxNGUiLAogICJtZXNzYWdlIjogewogICAgInR5cGUiOiAiZW50aXRsZW1lbnRfbWVzc2FnZSIsCiAgICAidmVyc2lvbiI6IDIsCiAgICAibGljZW5zZSI6IHsKICAgICAgImFsbG93X3BlcnNpc3RlbmNlIjogdHJ1ZQogICAgfSwKICAgICJjb250ZW50X2tleXNfc291cmNlIjogewogICAgICAiaW5saW5lIjogWwogICAgICAgIHsKICAgICAgICAgICJpZCI6ICIzMDJmODBkZC00MTFlLTQ4ODYtYmNhNS1iYjFmODAxOGEwMjQiLAogICAgICAgICAgImVuY3J5cHRlZF9rZXkiOiAicm9LQWcwdDdKaTFpNDNmd3YremZ0UT09IiwKICAgICAgICAgICJ1c2FnZV9wb2xpY3kiOiAiUG9saWN5IEEiCiAgICAgICAgfQogICAgICBdCiAgICB9LAogICAgImNvbnRlbnRfa2V5X3VzYWdlX3BvbGljaWVzIjogWwogICAgICB7CiAgICAgICAgIm5hbWUiOiAiUG9saWN5IEEiLAogICAgICAgICJwbGF5cmVhZHkiOiB7CiAgICAgICAgICAibWluX2RldmljZV9zZWN1cml0eV9sZXZlbCI6IDE1MCwKICAgICAgICAgICJwbGF5X2VuYWJsZXJzIjogWwogICAgICAgICAgICAiNzg2NjI3RDgtQzJBNi00NEJFLThGODgtMDhBRTI1NUIwMUE3IgogICAgICAgICAgXQogICAgICAgIH0KICAgICAgfQogICAgXQogIH0KfQ._NfhLVY7S6k8TJDWPeMPhUawhympnrk6WAZHOVjER6M',
-            scheme: ESiteDrmScheme.widevine,
-            licenseHeaders: {},
-          ),
+      _addLog('Resolving $videoId …');
+      final controller = await ESitePlayerController.forVideo(
+        videoId,
+        options: ESitePlaybackOptions(
           autoPlay: true,
-          preventScreenshots: false,
-          preventScreenRecording: false,
+          preventScreenshots: true,
+          preventScreenRecording: true,
           primaryColor: const Color(0xFF6C63FF),
-          secondaryColor: const Color(0xFFFFFFFF),
-        );
+          secondaryColor: Colors.white,
+        ),
+      );
 
-      case TestScenario.expiredAuth:
-        return ESitePlayerConfig(
-          sourceUrl:
-              'https://media.axprod.net/TestVectors/v7-MultiDRM-SingleKey/Manifest_1080p.mpd',
-          drm: ESiteDrmConfig(
-            licenseUrl:
-                'https://drm-widevine-licensing.axtest.net/AcquireLicense',
-            scheme: ESiteDrmScheme.widevine,
-            licenseHeaders: {
-              'X-AxDRM-Message': 'expired_or_invalid_token_here',
-            },
-          ),
-          autoPlay: false,
-          preventScreenshots: true,
-          preventScreenRecording: true,
-        );
+      _controller = controller;
+      _addLog(
+        'Resolved: ${controller.config.streamFormat.name.toUpperCase()}, '
+        'DRM session: ${controller.config.drm == null ? 'none' : controller.config.drm!.scheme.name}',
+      );
 
-      case TestScenario.invalidAuth:
-        return ESitePlayerConfig(
-          sourceUrl:
-              'https://media.axprod.net/TestVectors/v7-MultiDRM-SingleKey/Manifest_1080p.mpd',
-          drm: ESiteDrmConfig(
-            licenseUrl: 'https://invalid-drm-server.example.com/license',
-            scheme: ESiteDrmScheme.widevine,
-            licenseHeaders: {'X-AxDRM-Message': 'some_token'},
-          ),
-          autoPlay: false,
-          preventScreenshots: true,
-          preventScreenRecording: true,
-        );
+      _subscriptions.addAll([
+        controller.stateStream.listen((s) => _addLog('State: ${s.name}')),
+        controller.drmStream.listen(
+          (e) => _addLog('DRM: ${e.type.name} — ${e.message ?? ''}'),
+        ),
+        controller.errorStream.listen(
+          (e) => _addLog('Error: ${e.code.name} — ${e.message}'),
+        ),
+      ]);
 
-      case TestScenario.noAuth:
-        return ESitePlayerConfig(
-          sourceUrl:
-              'https://media.axprod.net/TestVectors/v7-MultiDRM-SingleKey/Manifest_1080p.mpd',
-          drm: ESiteDrmConfig(
-            licenseUrl:
-                'https://drm-widevine-licensing.axtest.net/AcquireLicense',
-            scheme: ESiteDrmScheme.widevine,
-            licenseHeaders: {},
-          ),
-          autoPlay: false,
-          preventScreenshots: true,
-          preventScreenRecording: true,
-        );
-
-      case TestScenario.wrongScheme:
-        return ESitePlayerConfig(
-          sourceUrl:
-              'https://media.axprod.net/TestVectors/v7-MultiDRM-SingleKey/Manifest_1080p.mpd',
-          drm: ESiteDrmConfig(
-            licenseUrl:
-                'https://drm-widevine-licensing.axtest.net/AcquireLicense',
-            scheme: ESiteDrmScheme.playready,
-            licenseHeaders: {
-              'X-AxDRM-Message':
-                  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ2ZXJzaW9uIjoxLCJjb21fa2V5X2lkIjoiYjMzNjRlYjUtNTFmNi00YWUzLThjOTgtMzNjZWQ1ZTMxYzc4IiwibWVzc2FnZSI6eyJ0eXBlIjoiZW50aXRsZW1lbnRfbWVzc2FnZSIsImtleXMiOlt7ImlkIjoiOWViNDA1MGQtZTQ0Yi00ODAyLTkzMmUtMjdkNzUwODNlMjY2IiwiZW5jcnlwdGVkX2tleSI6ImxLM09qSExZVzI0Y3Rkbmd5VmRkY2c9PSJ9XX19.4Adl1Qd9Br5n_UCFU-MnpLm3bNJIRrCmCeIxqZqnUNQ',
-            },
-          ),
-          autoPlay: false,
-          preventScreenshots: true,
-          preventScreenRecording: true,
-        );
-
-      case TestScenario.networkError:
-        return ESitePlayerConfig(
-          sourceUrl: 'https://nonexistent-domain-test-12345.com/video.mpd',
-          drm: ESiteDrmConfig(
-            licenseUrl: 'https://nonexistent-domain-test-12345.com/license',
-            scheme: ESiteDrmScheme.widevine,
-            licenseHeaders: {'Authorization': 'Bearer token'},
-          ),
-          autoPlay: false,
-          preventScreenshots: true,
-          preventScreenRecording: true,
-        );
-
-      case TestScenario.invalidUrl:
-        return ESitePlayerConfig(
-          sourceUrl: 'not-a-valid-url',
-          drm: ESiteDrmConfig(
-            licenseUrl: 'also-not-valid',
-            scheme: ESiteDrmScheme.widevine,
-            licenseHeaders: {},
-          ),
-          autoPlay: false,
-          preventScreenshots: true,
-          preventScreenRecording: true,
-        );
+      await controller.launchPlayer();
+    } on ESitePlayerException catch (e) {
+      _addLog('Failed: ${e.code.name} — ${e.message}');
+    } catch (e) {
+      _addLog('Failed: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _disposeController() async {
+    for (final subscription in _subscriptions) {
+      await subscription.cancel();
+    }
+    _subscriptions.clear();
+    await _controller?.dispose();
+    _controller = null;
+  }
+
+  void _addLog(String message) {
+    if (!mounted) return;
+    setState(() => _log.insert(0, message));
   }
 
   @override
   void dispose() {
-    _cancelSubscriptions();
-    controller?.dispose();
-    controller = null;
+    _disposeController();
+    _stub.stop();
+    _baseUrlController.dispose();
+    _tokenController.dispose();
+    _videoIdController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: const Text('ESite Player Test Suite'),
-      ),
-      body: Column(
+      appBar: AppBar(title: const Text('eSITE Player')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
         children: [
-          // Status bar
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: Colors.grey[850],
-            child: Row(
-              children: [
-                Icon(
-                  _getStateIcon(_currentState),
-                  color: _getStateColor(_currentState),
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'State: ${_currentState.name}',
-                  style: const TextStyle(fontSize: 14),
-                ),
-                if (_errorMessage != null) ...[
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      _errorMessage!,
-                      style: const TextStyle(color: Colors.red, fontSize: 12),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-
-          // Scenario selector + Event log
-          Expanded(
-            child: DefaultTabController(
-              length: 2,
-              child: Column(
-                children: [
-                  const TabBar(
-                    tabs: [
-                      Tab(text: 'Scenarios'),
-                      Tab(text: 'Events'),
-                    ],
-                  ),
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        _buildScenarioSelector(),
-                        _buildEventsTab(),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          _backendCard(),
+          const SizedBox(height: 16),
+          _playByIdCard(),
+          const SizedBox(height: 16),
+          _scenarioCard(),
+          const SizedBox(height: 16),
+          _logCard(),
         ],
       ),
     );
   }
 
-  Widget _buildScenarioSelector() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        const Text(
-          'Select a scenario to launch the native player:',
-          style: TextStyle(color: Colors.grey),
-        ),
-        const SizedBox(height: 12),
-        if (_isLoading)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 24),
-            child: Center(
-              child: Column(
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 12),
-                  Text(
-                    'Fetching entitlement from API...',
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                ],
-              ),
+  Widget _backendCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Backend',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
-          ),
-        ...TestScenario.values.map(
-          (scenario) => Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: ElevatedButton(
-              onPressed: () => _launchScenario(scenario),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.all(16),
-                backgroundColor: (scenario == TestScenario.validAuth ||
-                        scenario == TestScenario.esiteApi)
-                    ? Colors.green[700]
-                    : Colors.blue[700],
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          scenario.description,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          _getScenarioDetails(scenario),
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.white70,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Icon(Icons.launch, size: 20),
-                ],
-              ),
+            const SizedBox(height: 4),
+            const Text(
+              'The plugin calls your app backend, which holds the eSITE API '
+              'key and talks to the video service server-to-server.',
+              style: TextStyle(fontSize: 12, color: Colors.black54),
             ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  String _getScenarioDetails(TestScenario scenario) {
-    switch (scenario) {
-      case TestScenario.validAuth:
-        return 'Axinom v10 CMAF test content with valid Widevine license';
-      case TestScenario.esiteApi:
-        return 'Fetch entitlement from ESite API, then play with Widevine DRM';
-      case TestScenario.expiredAuth:
-        return 'Simulate expired authentication token';
-      case TestScenario.invalidAuth:
-        return 'Test with wrong license server URL';
-      case TestScenario.noAuth:
-        return 'Attempt playback without auth headers';
-      case TestScenario.wrongScheme:
-        return 'Use PlayReady for Widevine content';
-      case TestScenario.networkError:
-        return 'Test network connectivity errors';
-      case TestScenario.invalidUrl:
-        return 'Test malformed content URLs';
-    }
-  }
-
-  Widget _buildEventsTab() {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          color: Colors.grey[850],
-          child: Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Event Log',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Use built-in stub backend'),
+              subtitle: Text(_stubBaseUrl ?? 'starting…'),
+              value: _useStub,
+              onChanged: (value) {
+                setState(() => _useStub = value);
+                _applyConfiguration();
+              },
+            ),
+            if (!_useStub) ...[
+              TextField(
+                controller: _baseUrlController,
+                decoration: const InputDecoration(
+                  labelText: 'Base URL',
+                  hintText: 'https://api.myapp.com',
                 ),
+                onChanged: (_) => _applyConfiguration(),
               ),
-              TextButton.icon(
-                onPressed: () {
-                  setState(() {
-                    _eventLog.clear();
-                  });
-                },
-                icon: const Icon(Icons.clear_all, size: 16),
-                label: const Text('Clear'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _tokenController,
+                decoration: const InputDecoration(
+                  labelText: 'Access token',
+                  hintText: 'app ↔ backend token',
+                ),
+                onChanged: (_) => _applyConfiguration(),
               ),
             ],
-          ),
+          ],
         ),
-        Expanded(
-          child: _eventLog.isEmpty
-              ? const Center(
-                  child: Text(
-                    'No events yet',
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(8),
-                  itemCount: _eventLog.length,
-                  itemBuilder: (context, index) {
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 4),
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[850],
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        _eventLog[index],
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontFamily: 'monospace',
-                        ),
-                      ),
-                    );
-                  },
-                ),
-        ),
-      ],
+      ),
     );
   }
 
-  IconData _getStateIcon(ESitePlayerState state) {
-    switch (state) {
-      case ESitePlayerState.playing:
-        return Icons.play_circle_filled;
-      case ESitePlayerState.paused:
-        return Icons.pause_circle_filled;
-      case ESitePlayerState.buffering:
-        return Icons.hourglass_empty;
-      case ESitePlayerState.ready:
-        return Icons.check_circle;
-      case ESitePlayerState.completed:
-        return Icons.check_circle_outline;
-      case ESitePlayerState.error:
-        return Icons.error;
-      default:
-        return Icons.circle_outlined;
-    }
+  Widget _playByIdCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Play by video UUID',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _videoIdController,
+              decoration: const InputDecoration(labelText: 'Video UUID'),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _busy
+                  ? null
+                  : () => _play(_videoIdController.text.trim()),
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('Play'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
-  Color _getStateColor(ESitePlayerState state) {
-    switch (state) {
-      case ESitePlayerState.playing:
-        return Colors.green;
-      case ESitePlayerState.paused:
-        return Colors.orange;
-      case ESitePlayerState.buffering:
-        return Colors.blue;
-      case ESitePlayerState.ready:
-        return Colors.green;
-      case ESitePlayerState.completed:
-        return Colors.grey;
-      case ESitePlayerState.error:
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
+  Widget _scenarioCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Stub scenarios',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            for (final scenario in Scenario.values)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: Text(scenario.label),
+                subtitle: Text(scenario.description),
+                trailing: const Icon(Icons.chevron_right),
+                enabled: !_busy && _useStub,
+                onTap: () => _play(scenario.videoId),
+              ),
+            if (!_useStub)
+              const Text(
+                'Enable the stub backend to run these.',
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _logCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Events',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                TextButton(
+                  onPressed: () => setState(_log.clear),
+                  child: const Text('Clear'),
+                ),
+              ],
+            ),
+            if (_log.isEmpty)
+              const Text(
+                'No events yet.',
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+            for (final entry in _log)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Text(
+                  entry,
+                  style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }

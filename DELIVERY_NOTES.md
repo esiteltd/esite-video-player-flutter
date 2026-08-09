@@ -1,14 +1,16 @@
 # eSite Flutter Player - Delivery Notes
 
-**Version:** 0.1.0  
-**Date:** January 20, 2026  
-**Platform:** Android (iOS support planned)
+**Version:** 0.3.0  
+**Date:** August 9, 2026  
+**Platform:** Android and iOS
 
 ---
 
 ## Package Overview
 
-The eSite Flutter Player is a production-ready Flutter plugin for secure DRM-protected video playback on Android. It uses Media3 ExoPlayer with Widevine DRM support and includes comprehensive security features.
+The eSite Flutter Player is a Flutter plugin for secure video playback backed by the eSITE Video Service. Callers pass a video UUID; the plugin resolves it through the app's own backend, determines the protection mode (none, Lite DRM or Full DRM), and plays it in a native fullscreen screen — Media3 ExoPlayer on Android, AVPlayer on iOS.
+
+> Full DRM plays on Android only. It is packaged as DASH + Widevine, which AVPlayer cannot decode; FairPlay HLS packaging is pending on the backend. See CHANGELOG.md for the full 0.3.0 notes.
 
 ---
 
@@ -37,11 +39,12 @@ The eSite Flutter Player is a production-ready Flutter plugin for secure DRM-pro
 ## Features Implemented
 
 ### Core Features ✅
-- Widevine DRM playback with Axinom support
-- Platform channel communication (Flutter ↔ Android)
-- ExoPlayer Media3 integration
-- PlatformView-based video rendering
-- Secure DRM license acquisition
+- Playback by video UUID, with protection mode resolved automatically
+- Lite DRM (AES-128 encrypted HLS) on both platforms
+- Full DRM (DASH + Widevine) on Android
+- Platform channel communication (Flutter ↔ Android/iOS, one shared contract)
+- ExoPlayer Media3 on Android, AVPlayer on iOS
+- Native fullscreen screen (not a PlatformView — required for the secure video path)
 
 ### Playback Controls ✅
 - Play / Pause
@@ -91,25 +94,23 @@ flutter pub get
 ```dart
 import 'package:esite_flutter_player/esite_flutter_player.dart';
 
-final controller = ESitePlayerController(
-  ESitePlayerConfig(
-    sourceUrl: 'https://your-cdn.com/video.mpd',
-    drm: ESiteDrmConfig(
-      licenseUrl: 'https://license.server.com/widevine',
-      scheme: ESiteDrmScheme.widevine,
-      licenseHeaders: {'X-AxDRM-Message': 'your-token'},
-    ),
-    preventScreenshots: true,
+// Once, at app start. baseUrl is your own backend, which holds the eSITE
+// API key and calls the video service server-to-server.
+ESitePlayer.configure(
+  baseUrl: 'https://api.myapp.com',
+  tokenProvider: () async => auth.accessToken,
+);
+
+// Then play by UUID.
+final controller = await ESitePlayerController.forVideo(
+  '4c2f5fdd-d88e-4d2b-b03d-039edef920a7',
+  options: const ESitePlaybackOptions(
+    autoPlay: true,
     preventScreenRecording: true,
   ),
 );
 
-await controller.initialize();
-```
-
-Display the player:
-```dart
-ESitePlayerView(controller: controller)
+await controller.launchPlayer();
 ```
 
 See `doc/getting_started.md` for complete tutorials.
@@ -127,14 +128,12 @@ flutter run -d <android-device-id>
 ```
 
 **Features demonstrated:**
-- DRM playback with Axinom test content
-- All playback controls
-- Speed and volume adjustment
-- Track selection
-- State monitoring
-- Error handling
+- Playback by video UUID against a built-in stub backend (no credentials needed)
+- Lite DRM, plain, full DRM, not-ready, not-found and unauthorized paths
+- Switching to a real backend URL and access token
+- State, DRM and error stream monitoring
 
-**Note:** Requires a physical Android device (emulators may not support DRM)
+**Note:** Full DRM requires a physical Android device (emulators lack Widevine L1, though L3 works for basic testing).
 
 ---
 

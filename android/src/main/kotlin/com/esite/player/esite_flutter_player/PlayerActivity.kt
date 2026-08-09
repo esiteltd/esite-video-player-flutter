@@ -26,20 +26,30 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.Util
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
-import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
 import androidx.media3.exoplayer.drm.FrameworkMediaDrm
-import androidx.media3.exoplayer.drm.HttpMediaDrmCallback
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerView
 
 class PlayerActivity : AppCompatActivity() {
+
+    companion object {
+        /**
+         * The player currently on screen, if any. The plugin routes transport
+         * commands here — the Activity and the Flutter plugin cannot share
+         * instance references any other way.
+         */
+        @Volatile
+        var current: PlayerActivity? = null
+            private set
+    }
 
     private var player: ExoPlayer? = null
     private var playerView: PlayerView? = null
@@ -63,12 +73,14 @@ class PlayerActivity : AppCompatActivity() {
 
     private var currentConfig: Map<String, Any>? = null
     private var currentSpeed: Float = 1.0f
+    private var volumeBeforeMute: Float = 1.0f
 
     private var primaryColor: Int = Color.WHITE
     private var secondaryColor: Int = Color.WHITE
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        current = this
         setContentView(R.layout.activity_player)
 
         playerView = findViewById(R.id.player_view)
@@ -198,43 +210,40 @@ class PlayerActivity : AppCompatActivity() {
         val headers = args["headers"] as? Map<String, String> ?: emptyMap()
         val drm = args["drm"] as? Map<String, Any>
         val autoPlay = args["autoPlay"] as? Boolean ?: false
+        val streamFormat = (args["streamFormat"] as? String)?.lowercase() ?: "auto"
 
-        if (drm == null) {
-            showError("DRM Error", "DRM configuration is required for this content")
-            PlayerEventBridge.sendError(0, "DRM configuration is required")
-            return
-        }
+        // DRM is optional. Unprotected and "Lite DRM" sources open no DRM
+        // session at all: Lite DRM is HLS with AES-128 encrypted segments, and
+        // HlsMediaSource fetches the key itself from the playlist's key route
+        // using the same data source factory as the segments.
+        var drmUuid: java.util.UUID? = null
+        var licenseUrl: String? = null
+        var licenseHeaders: Map<String, String>? = null
 
-        val licenseUrl = drm["licenseUrl"] as? String
-        val scheme = drm["scheme"] as? String
-        val licenseHeaders = drm["licenseHeaders"] as? Map<String, String>
+        if (drm != null) {
+            licenseUrl = drm["licenseUrl"] as? String
+            val scheme = drm["scheme"] as? String
+            licenseHeaders = drm["licenseHeaders"] as? Map<String, String>
 
-        if (licenseUrl.isNullOrBlank()) {
-            showError("DRM Error", "No license server URL provided")
-            PlayerEventBridge.sendError(1, "Invalid DRM configuration: missing license URL")
-            return
-        }
-
-        if (scheme.isNullOrBlank()) {
-            showError("DRM Error", "No DRM scheme specified")
-            PlayerEventBridge.sendError(1, "Invalid DRM configuration: missing scheme")
-            return
-        }
-
-        val drmUuid = when (scheme) {
-            "widevine" -> C.WIDEVINE_UUID
-            "playready" -> C.PLAYREADY_UUID
-            else -> {
-                showError("DRM Error", "Unsupported DRM scheme: $scheme\nSupported: Widevine, PlayReady")
-                PlayerEventBridge.sendError(1, "Unsupported DRM scheme: $scheme")
+            if (licenseUrl.isNullOrBlank()) {
+                showError("DRM Error", "No license server URL provided")
+                PlayerEventBridge.sendError(1, "Invalid DRM configuration: missing license URL")
                 return
+            }
+
+            drmUuid = when (scheme) {
+                "widevine" -> C.WIDEVINE_UUID
+                // FairPlay is iOS-only; Android has no CDM for it.
+                else -> {
+                    showError("DRM Error", "Unsupported DRM scheme: $scheme\nSupported on Android: Widevine")
+                    PlayerEventBridge.sendError(1, "Unsupported DRM scheme: $scheme")
+                    return
+                }
             }
         }
 
         try {
             releasePlayer()
-
-            val drmSessionManager = buildDrmSessionManager(drmUuid, licenseUrl, licenseHeaders)
 
             trackSelector = DefaultTrackSelector(this).apply {
                 setParameters(
@@ -302,25 +311,45 @@ class PlayerActivity : AppCompatActivity() {
             })
 
             player?.addAnalyticsListener(object : AnalyticsListener {
-                override fun onDrmSessionAcquired(
+                override fun onDrmKeysLoaded(
                     eventTime: AnalyticsListener.EventTime
                 ) {
-                    PlayerEventBridge.sendDrmEvent(0, "License requested")
+                    PlayerEventBridge.sendDrmEvent(1, "License acquired")
+                }
+
+                override fun onDrmSessionManagerError(
+                    eventTime: AnalyticsListener.EventTime,
+                    error: Exception
+                ) {
+                    PlayerEventBridge.sendDrmEvent(
+                        2,
+                        "License acquisition failed: ${error.message}"
+                    )
                 }
             })
 
-            val mediaItem = MediaItem.Builder()
-                .setUri(sourceUrl)
-                .setDrmConfiguration(
+            val mediaItemBuilder = MediaItem.Builder().setUri(sourceUrl)
+
+            // Declare the container rather than letting ExoPlayer infer it from
+            // the URL suffix: playback URLs are token-authenticated and carry
+            // query strings, so they often do not end in .m3u8 or .mpd.
+            when (streamFormat) {
+                "hls" -> mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+                "dash" -> mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_MPD)
+            }
+
+            if (drmUuid != null && licenseUrl != null) {
+                mediaItemBuilder.setDrmConfiguration(
                     MediaItem.DrmConfiguration.Builder(drmUuid)
                         .setLicenseUri(licenseUrl)
                         .setLicenseRequestHeaders(licenseHeaders ?: emptyMap())
                         .setForceSessionsForAudioAndVideoTracks(true)
                         .build()
                 )
-                .build()
+                reportSecurityLevel(drmUuid)
+            }
 
-            player?.setMediaItem(mediaItem)
+            player?.setMediaItem(mediaItemBuilder.build())
             player?.prepare()
             player?.playWhenReady = autoPlay
             player?.playbackParameters = PlaybackParameters(currentSpeed)
@@ -390,43 +419,32 @@ class PlayerActivity : AppCompatActivity() {
 
         showError(title, message)
         PlayerEventBridge.sendError(code, message.replace("\n", " "))
-        PlayerEventBridge.sendDrmEvent(2, message.replace("\n", " "))
+        // Only report a DRM failure for actual DRM errors — a network or
+        // decoder failure is not a licensing problem.
+        if (code == 1) {
+            PlayerEventBridge.sendDrmEvent(2, message.replace("\n", " "))
+        }
     }
 
-    private fun buildDrmSessionManager(
-        drmUuid: java.util.UUID,
-        licenseUrl: String,
-        licenseHeaders: Map<String, String>?
-    ): DefaultDrmSessionManager {
-        val drmHttpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(Util.getUserAgent(this, "esite_flutter_player"))
-            .setConnectTimeoutMs(15000)
-            .setReadTimeoutMs(15000)
-
-        val drmCallback = HttpMediaDrmCallback(licenseUrl, drmHttpDataSourceFactory)
-        licenseHeaders?.forEach { (key, value) ->
-            drmCallback.setKeyRequestProperty(key, value)
-        }
-
-        val mediaDrm = FrameworkMediaDrm.newInstance(drmUuid)
-
-        val securityLevel = try {
-            mediaDrm.setPropertyString("securityLevel", "L1")
-            "L1"
+    /**
+     * Reports the device's Widevine security level for diagnostics.
+     *
+     * This only *reads* the level — it does not force one. The session itself
+     * is created by ExoPlayer from the MediaItem's DrmConfiguration, so
+     * overriding the property on a throwaway MediaDrm instance would have no
+     * effect on playback. The instance is released immediately.
+     */
+    private fun reportSecurityLevel(drmUuid: java.util.UUID) {
+        var mediaDrm: FrameworkMediaDrm? = null
+        try {
+            mediaDrm = FrameworkMediaDrm.newInstance(drmUuid)
+            val level = mediaDrm.getPropertyString("securityLevel")
+            PlayerEventBridge.sendDrmEvent(0, "DRM security level: $level")
         } catch (e: Exception) {
-            try {
-                mediaDrm.setPropertyString("securityLevel", "L3")
-                "L3"
-            } catch (e2: Exception) {
-                "default"
-            }
+            PlayerEventBridge.sendDrmEvent(0, "DRM security level unavailable: ${e.message}")
+        } finally {
+            mediaDrm?.release()
         }
-
-        PlayerEventBridge.sendDrmEvent(1, "DRM security level: $securityLevel")
-
-        return DefaultDrmSessionManager.Builder()
-            .setUuidAndExoMediaDrmProvider(drmUuid) { mediaDrm }
-            .build(drmCallback)
     }
 
     // --- Double-tap to seek (YouTube-like) ---
@@ -676,6 +694,131 @@ class PlayerActivity : AppCompatActivity() {
         return if (parts.isEmpty()) "Video track" else parts.joinToString(" - ")
     }
 
+    // --- Transport commands from Dart ---
+    //
+    // MethodChannel handlers run on the platform main thread, which is also
+    // ExoPlayer's application thread, so these touch the player directly.
+
+    fun commandPlay() { player?.play() }
+
+    fun commandPause() { player?.pause() }
+
+    fun commandSeekTo(positionMs: Long) { player?.seekTo(positionMs) }
+
+    fun commandSeekForward(offsetMs: Long) {
+        player?.let { it.seekTo((it.currentPosition + offsetMs).coerceAtMost(it.duration.coerceAtLeast(0))) }
+    }
+
+    fun commandSeekBackward(offsetMs: Long) {
+        player?.let { it.seekTo((it.currentPosition - offsetMs).coerceAtLeast(0)) }
+    }
+
+    fun commandSetSpeed(speed: Float) {
+        currentSpeed = speed
+        player?.playbackParameters = PlaybackParameters(speed)
+    }
+
+    fun commandSetVolume(volume: Float) {
+        if (volume > 0f) {
+            volumeBeforeMute = volume
+        }
+        player?.volume = volume
+    }
+
+    fun commandGetVolume(): Double = (player?.volume ?: 1.0f).toDouble()
+
+    fun commandSetMuted(muted: Boolean) {
+        val currentVolume = player?.volume ?: 1.0f
+        if (muted) {
+            if (currentVolume > 0f) {
+                volumeBeforeMute = currentVolume
+            }
+            player?.volume = 0f
+        } else {
+            player?.volume = volumeBeforeMute
+        }
+    }
+
+    fun commandIsMuted(): Boolean = (player?.volume ?: 1.0f) == 0f
+
+    fun commandHasNext(): Boolean = player?.hasNextMediaItem() ?: false
+
+    fun commandHasPrevious(): Boolean = player?.hasPreviousMediaItem() ?: false
+
+    fun commandNext() {
+        player?.let { if (it.hasNextMediaItem()) it.seekToNextMediaItem() }
+    }
+
+    fun commandPrevious() {
+        player?.let { if (it.hasPreviousMediaItem()) it.seekToPreviousMediaItem() }
+    }
+
+    fun commandClose() { finish() }
+
+    /**
+     * Video tracks as `{id, label, width, height, bitrate, frameRate}`. The id
+     * is `groupIndex:trackIndex`, which [commandSetVideoTrack] parses back.
+     */
+    fun commandGetAvailableVideoTracks(): List<Map<String, Any>> {
+        val tracks = player?.currentTracks ?: return emptyList()
+        val result = mutableListOf<Map<String, Any>>()
+        tracks.groups.forEachIndexed { groupIndex, group ->
+            if (group.type != C.TRACK_TYPE_VIDEO) return@forEachIndexed
+            for (trackIndex in 0 until group.length) {
+                if (!group.isTrackSupported(trackIndex)) continue
+                val format = group.getTrackFormat(trackIndex)
+                result.add(
+                    mapOf(
+                        "id" to "$groupIndex:$trackIndex",
+                        "label" to buildVideoLabel(format),
+                        "width" to format.width,
+                        "height" to format.height,
+                        "bitrate" to format.bitrate,
+                        "frameRate" to format.frameRate.toDouble()
+                    )
+                )
+            }
+        }
+        return result
+    }
+
+    /** Pass `"auto"` to return to adaptive selection. */
+    fun commandSetVideoTrack(trackId: String) {
+        val selector = trackSelector ?: return
+        if (trackId == "auto") {
+            selector.parameters = selector.buildUponParameters()
+                .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                .setMaxVideoBitrate(Int.MAX_VALUE)
+                .build()
+            return
+        }
+
+        val parts = trackId.split(":")
+        val groupIndex = parts.getOrNull(0)?.toIntOrNull() ?: return
+        val trackIndex = parts.getOrNull(1)?.toIntOrNull() ?: return
+        val groups = player?.currentTracks?.groups ?: return
+        val group = groups.getOrNull(groupIndex) ?: return
+
+        selector.parameters = selector.buildUponParameters()
+            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            .addOverride(TrackSelectionOverride(group.mediaTrackGroup, trackIndex))
+            .build()
+    }
+
+    fun commandSetSubtitleEnabled(enabled: Boolean) {
+        val selector = trackSelector ?: return
+        selector.parameters = selector.buildUponParameters()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !enabled)
+            .build()
+    }
+
+    fun commandIsSubtitleEnabled(): Boolean {
+        val selector = trackSelector ?: return false
+        return !selector.parameters.getRendererDisabled(C.TRACK_TYPE_TEXT) &&
+            !selector.parameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+    }
+
     // --- Lifecycle ---
 
     override fun onResume() {
@@ -698,6 +841,9 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (current === this) {
+            current = null
+        }
         releasePlayer()
         PlayerEventBridge.notifyActivityFinished()
     }
