@@ -1,0 +1,1181 @@
+<title>eSITE Flutter Player — Documentation</title>
+<style>
+  /* ---------- Tokens: complete light palette on bare :root ---------- */
+  :root {
+    --bg:        #F6F6FB;
+    --surface:   #FFFFFF;
+    --surface-2: #EFEFF7;
+    --ink:       #17171F;
+    --ink-soft:  #3D3D4E;
+    --muted:     #61617A;
+    --line:      #E1E1EE;
+    --line-soft: #ECECF5;
+
+    --accent:      #5A50E8;
+    --accent-soft: #EDEBFF;
+    --accent-ink:  #4038C4;
+
+    --ok:        #0C6E52;
+    --ok-bg:     #E2F3ED;
+    --warn:      #8A5A00;
+    --warn-bg:   #FBEEDA;
+    --no:        #A62A20;
+    --no-bg:     #FBE7E5;
+
+    --code-bg:   #14141C;
+    --code-ink:  #E6E6F2;
+    --code-mute: #8686A3;
+
+    --shadow: 0 1px 2px rgba(23, 23, 31, .05), 0 8px 24px -12px rgba(23, 23, 31, .12);
+
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+    --measure: 68ch;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:        #0E0E15;
+      --surface:   #16161F;
+      --surface-2: #1E1E2A;
+      --ink:       #EDEDF5;
+      --ink-soft:  #C7C7D8;
+      --muted:     #9494AE;
+      --line:      #2A2A3A;
+      --line-soft: #22222F;
+
+      --accent:      #9B93FF;
+      --accent-soft: #23203D;
+      --accent-ink:  #B5AEFF;
+
+      --ok:        #5FD3AC;
+      --ok-bg:     #102E26;
+      --warn:      #E3B25F;
+      --warn-bg:   #322512;
+      --no:        #F09189;
+      --no-bg:     #351A18;
+
+      --code-bg:   #0A0A11;
+      --code-ink:  #E6E6F2;
+      --code-mute: #6E6E8C;
+
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .6);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg:        #0E0E15;
+    --surface:   #16161F;
+    --surface-2: #1E1E2A;
+    --ink:       #EDEDF5;
+    --ink-soft:  #C7C7D8;
+    --muted:     #9494AE;
+    --line:      #2A2A3A;
+    --line-soft: #22222F;
+
+    --accent:      #9B93FF;
+    --accent-soft: #23203D;
+    --accent-ink:  #B5AEFF;
+
+    --ok:        #5FD3AC;
+    --ok-bg:     #102E26;
+    --warn:      #E3B25F;
+    --warn-bg:   #322512;
+    --no:        #F09189;
+    --no-bg:     #351A18;
+
+    --code-bg:   #0A0A11;
+    --code-ink:  #E6E6F2;
+    --code-mute: #6E6E8C;
+
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .6);
+  }
+
+  /* ---------- Base ---------- */
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:hover { color: var(--ink); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+  /* ---------- Shell ---------- */
+  .shell {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 56px;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 32px;
+    align-items: start;
+  }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar {
+    position: sticky;
+    top: 0;
+    max-height: 100vh;
+    overflow-y: auto;
+    padding: 40px 0 48px;
+  }
+
+  .brand { display: flex; flex-direction: column; gap: 2px; margin-bottom: 28px; }
+  .brand-name { font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+  .brand-ver {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: .04em;
+  }
+
+  .nav { display: flex; flex-direction: column; gap: 26px; }
+  .nav-group { display: flex; flex-direction: column; gap: 6px; }
+  .nav-title {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    color: var(--muted);
+    margin-bottom: 2px;
+  }
+  .nav a {
+    color: var(--ink-soft);
+    text-decoration: none;
+    font-size: 14px;
+    padding: 3px 0;
+    border-left: 2px solid transparent;
+    padding-left: 12px;
+    margin-left: -14px;
+    transition: color .12s, border-color .12s;
+  }
+  .nav a:hover { color: var(--accent-ink); border-left-color: var(--accent); }
+
+  /* ---------- Main ---------- */
+  .main { padding: 40px 0 120px; min-width: 0; }
+
+  .lede { max-width: var(--measure); }
+
+  h1 {
+    font-size: clamp(34px, 5vw, 46px);
+    line-height: 1.1;
+    letter-spacing: -.03em;
+    font-weight: 700;
+    margin: 0 0 16px;
+    text-wrap: balance;
+  }
+
+  .tagline {
+    font-size: 19px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+    margin: 0 0 12px;
+    text-wrap: pretty;
+  }
+
+  section { scroll-margin-top: 24px; padding-top: 56px; }
+  section + section { border-top: 1px solid var(--line-soft); margin-top: 8px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: .14em;
+    color: var(--accent-ink);
+    margin: 0 0 10px;
+  }
+
+  h2 {
+    font-size: 27px;
+    letter-spacing: -.02em;
+    font-weight: 680;
+    margin: 0 0 14px;
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-size: 17px;
+    letter-spacing: -.01em;
+    font-weight: 650;
+    margin: 34px 0 10px;
+  }
+
+  h4 {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    margin: 26px 0 8px;
+    color: var(--ink);
+  }
+
+  p, ul, ol { max-width: var(--measure); }
+  p { margin: 0 0 14px; }
+  ul, ol { margin: 0 0 14px; padding-left: 20px; }
+  li { margin-bottom: 6px; }
+  li::marker { color: var(--muted); }
+
+  strong { font-weight: 650; }
+
+  code {
+    font-family: var(--mono);
+    font-size: .875em;
+    background: var(--surface-2);
+    padding: .12em .38em;
+    border-radius: 4px;
+    border: 1px solid var(--line-soft);
+  }
+
+  /* ---------- Code blocks ---------- */
+  .code {
+    position: relative;
+    background: var(--code-bg);
+    border-radius: 10px;
+    margin: 0 0 18px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+  }
+  .code-lang {
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    color: var(--code-mute);
+    padding: 9px 16px 0;
+  }
+  .code pre {
+    margin: 0;
+    padding: 8px 16px 16px;
+    overflow-x: auto;
+    color: var(--code-ink);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.7;
+    tab-size: 2;
+  }
+  .code code { background: none; border: none; padding: 0; font-size: inherit; }
+  .cm { color: var(--code-mute); font-style: italic; }
+
+  /* ---------- Tables ---------- */
+  .table-wrap { overflow-x: auto; margin: 0 0 18px; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 14.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: var(--muted);
+    font-weight: 500;
+    padding: 0 16px 8px 0;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  td {
+    padding: 11px 16px 11px 0;
+    border-bottom: 1px solid var(--line-soft);
+    vertical-align: top;
+    color: var(--ink-soft);
+  }
+  td:first-child { color: var(--ink); }
+  td code { white-space: nowrap; }
+
+  /* ---------- Status chips ---------- */
+  .chip {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .04em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+  .chip-ok   { background: var(--ok-bg);   color: var(--ok); }
+  .chip-warn { background: var(--warn-bg); color: var(--warn); }
+  .chip-no   { background: var(--no-bg);   color: var(--no); }
+
+  /* ---------- Callouts ---------- */
+  .note {
+    max-width: var(--measure);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin: 0 0 18px;
+    box-shadow: var(--shadow);
+  }
+  .note p:last-child { margin-bottom: 0; }
+  .note-label {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    margin: 0 0 6px;
+  }
+  .note-warn { border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); }
+  .note-warn .note-label { color: var(--warn); }
+  .note-info .note-label { color: var(--accent-ink); }
+
+  /* ---------- Diagram ---------- */
+  .diagram {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 0 0 18px;
+    overflow-x: auto;
+    box-shadow: var(--shadow);
+  }
+  .diagram svg { display: block; min-width: 620px; width: 100%; height: auto; }
+  .d-box  { fill: var(--surface-2); stroke: var(--line); }
+  .d-key  { fill: var(--accent-soft); stroke: var(--accent); }
+  .d-t    { fill: var(--ink); font-family: var(--sans); font-size: 13px; font-weight: 600; }
+  .d-s    { fill: var(--muted); font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em; }
+  .d-l    { fill: var(--accent-ink); font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em; }
+  .d-line { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+
+  /* ---------- Signature blocks ---------- */
+  .sig {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    padding: 10px 14px;
+    margin: 0 0 14px;
+    overflow-x: auto;
+    color: var(--ink);
+    max-width: var(--measure);
+  }
+
+  footer {
+    margin-top: 72px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 13px;
+    max-width: var(--measure);
+  }
+
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; gap: 0; padding: 0 22px; }
+    .sidebar {
+      position: static;
+      max-height: none;
+      padding: 28px 0 0;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 24px;
+    }
+    .nav { flex-direction: row; flex-wrap: wrap; gap: 18px 32px; }
+    .main { padding-top: 24px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-name">eSITE Flutter Player</span>
+      <span class="brand-ver">v0.3.0 · Android + iOS</span>
+    </div>
+
+    <nav class="nav">
+      <div class="nav-group">
+        <span class="nav-title">Start</span>
+        <a href="#overview">Overview</a>
+        <a href="#topology">How it fits together</a>
+        <a href="#modes">Protection modes</a>
+        <a href="#install">Install</a>
+        <a href="#quickstart">Quick start</a>
+      </div>
+      <div class="nav-group">
+        <span class="nav-title">Integrate</span>
+        <a href="#backend">Backend contract</a>
+        <a href="#mapper">Custom response shapes</a>
+        <a href="#control">Playback control</a>
+        <a href="#errors">Errors</a>
+      </div>
+      <div class="nav-group">
+        <span class="nav-title">Reference</span>
+        <a href="#api-player">ESitePlayer</a>
+        <a href="#api-controller">ESitePlayerController</a>
+        <a href="#api-config">Configuration types</a>
+        <a href="#api-resolution">Resolution types</a>
+        <a href="#api-events">Events</a>
+      </div>
+      <div class="nav-group">
+        <span class="nav-title">Operate</span>
+        <a href="#security">Security</a>
+        <a href="#testing">Testing</a>
+        <a href="#troubleshooting">Troubleshooting</a>
+        <a href="#limits">Limitations</a>
+      </div>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <div class="lede">
+      <h1>Play a video by its UUID.</h1>
+      <p class="tagline">
+        Secure video playback for Flutter, backed by the eSITE Video Service. Give the plugin a
+        video UUID — it resolves the video through your backend, works out whether it is
+        unprotected, Lite DRM or Full DRM, and plays it in a native fullscreen player on
+        Android and iOS.
+      </p>
+    </div>
+
+    <section id="overview">
+      <p class="eyebrow">Overview</p>
+      <h2>The whole integration</h2>
+
+      <div class="code">
+        <div class="code-lang">dart</div>
+<pre><code><span class="cm">// Once, at app start.</span>
+ESitePlayer.configure(
+  baseUrl: 'https://api.myapp.com',
+  tokenProvider: () async =&gt; auth.accessToken,
+);
+
+<span class="cm">// Then, wherever you play something.</span>
+final controller = await ESitePlayerController.forVideo(videoId);
+await controller.launchPlayer();</code></pre>
+      </div>
+
+      <p>
+        No manifest URLs, no license servers, no DRM branching in your app. The plugin handles
+        HLS and DASH, AES-128 encryption and Widevine sessions, and reports everything back
+        through three typed streams.
+      </p>
+    </section>
+
+    <section id="topology">
+      <p class="eyebrow">Architecture</p>
+      <h2>How it fits together</h2>
+
+      <p>
+        The plugin <strong>never talks to the eSITE service directly.</strong> Your backend holds
+        the tenant API key and makes the server-to-server call; the plugin authenticates to
+        <em>your</em> backend with a token your app already has.
+      </p>
+
+      <div class="diagram">
+        <svg viewBox="0 0 700 150" role="img" aria-label="The Flutter app sends an access token to the client's own backend, which sends an X-API-Key to the eSITE Video Service.">
+          <rect class="d-box" x="8"   y="34" width="180" height="62" rx="9" stroke-width="1.5"/>
+          <rect class="d-key" x="260" y="34" width="180" height="62" rx="9" stroke-width="1.5"/>
+          <rect class="d-box" x="512" y="34" width="180" height="62" rx="9" stroke-width="1.5"/>
+
+          <text class="d-t" x="98"  y="60" text-anchor="middle">Flutter app</text>
+          <text class="d-s" x="98"  y="78" text-anchor="middle">PLUGIN</text>
+
+          <text class="d-t" x="350" y="60" text-anchor="middle">Your backend</text>
+          <text class="d-s" x="350" y="78" text-anchor="middle">HOLDS THE API KEY</text>
+
+          <text class="d-t" x="602" y="60" text-anchor="middle">eSITE Video Service</text>
+          <text class="d-s" x="602" y="78" text-anchor="middle">/api/v1/videos/{id}</text>
+
+          <path class="d-line" d="M188 65 H252" marker-end="url(#arw)"/>
+          <path class="d-line" d="M440 65 H504" marker-end="url(#arw)"/>
+
+          <text class="d-l" x="220" y="52" text-anchor="middle">access</text>
+          <text class="d-l" x="220" y="88" text-anchor="middle">token</text>
+          <text class="d-l" x="472" y="52" text-anchor="middle">X-API-Key</text>
+          <text class="d-l" x="472" y="88" text-anchor="middle">server↔server</text>
+
+          <defs>
+            <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5"
+                    markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+
+      <div class="note note-warn">
+        <p class="note-label">Why not call eSITE directly</p>
+        <p>
+          The tenant API key authenticates at <strong>UPLOADER or higher</strong> — which includes
+          upload and, for EDITOR/ADMIN, delete. It is not a read-only playback credential, and
+          anything shipped in an APK or IPA is extractable. Do not pass an eSITE key through
+          <code>ESitePlayer.configure(headers: …)</code> to shortcut the integration; that defeats
+          the entire arrangement.
+        </p>
+      </div>
+    </section>
+
+    <section id="modes">
+      <p class="eyebrow">Protection</p>
+      <h2>Three modes, resolved for you</h2>
+
+      <p>The backend's <code>drm_type</code> decides which path the plugin takes.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th><code>drm_type</code></th>
+              <th>Delivery</th>
+              <th>What the player does</th>
+              <th>Android</th>
+              <th>iOS</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><em>none</em></td>
+              <td>HLS</td>
+              <td>Plays directly</td>
+              <td><span class="chip chip-ok">yes</span></td>
+              <td><span class="chip chip-ok">yes</span></td>
+            </tr>
+            <tr>
+              <td><code>lite</code></td>
+              <td>HLS, AES-128 segments</td>
+              <td>Player fetches the key from the playlist's key route — no DRM session</td>
+              <td><span class="chip chip-ok">yes</span></td>
+              <td><span class="chip chip-ok">yes</span></td>
+            </tr>
+            <tr>
+              <td><code>full</code></td>
+              <td>DASH + license server</td>
+              <td>Opens a Widevine session</td>
+              <td><span class="chip chip-ok">yes</span></td>
+              <td><span class="chip chip-no">no</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Lite DRM is standard HLS AES-128</h3>
+      <p>
+        Both ExoPlayer and AVPlayer handle it natively. That is why it needs no DRM
+        configuration, no license server and no extra headers — the playback URL is
+        token-authenticated in the URL itself, and the segment key is fetched by the player
+        along the same path as the segments.
+      </p>
+
+      <h3>Full DRM on iOS</h3>
+      <p>
+        Full-DRM content is packaged as DASH + Widevine. AVPlayer plays neither. Supporting it
+        on iOS requires the video service to <em>also</em> package CBCS fMP4 HLS and expose a
+        FairPlay SPC/CKC endpoint plus an application certificate — that backend work is pending.
+      </p>
+      <p>
+        Until then <code>forVideo()</code> throws <code>unsupportedOnPlatform</code> for
+        full-DRM videos on iOS rather than presenting a black screen. The FairPlay wiring is
+        stubbed in <code>ios/Classes/ESiteContentKeyManager.swift</code>, ready for the
+        certificate fetch and CKC exchange.
+      </p>
+    </section>
+
+    <section id="install">
+      <p class="eyebrow">Setup</p>
+      <h2>Install</h2>
+
+      <div class="code">
+        <div class="code-lang">yaml</div>
+<pre><code>dependencies:
+  esite_flutter_player: ^0.3.0</code></pre>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Platform</th><th>Requirement</th><th>Extra configuration</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Android</td><td>minSdk 24, compileSdk 36</td><td>None — the plugin declares its own permissions and Activity</td></tr>
+            <tr><td>iOS</td><td>Deployment target 13.0</td><td>None — CocoaPods only, no Swift Package Manager support yet</td></tr>
+            <tr><td>Dart</td><td>SDK ^3.10.4, Flutter &gt;=3.3.0</td><td>No third-party dependencies</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="quickstart">
+      <p class="eyebrow">Setup</p>
+      <h2>Quick start</h2>
+
+      <h3>1 — Configure once</h3>
+      <div class="code">
+        <div class="code-lang">dart</div>
+<pre><code>void main() {
+  ESitePlayer.configure(
+    baseUrl: 'https://api.myapp.com',      <span class="cm">// your backend</span>
+    videoPath: '/videos/{id}/playback',    <span class="cm">// default; override to match your routes</span>
+    tokenProvider: () async =&gt; auth.accessToken,
+  );
+  runApp(const MyApp());
+}</code></pre>
+      </div>
+      <p>
+        <code>tokenProvider</code> is called per request, so a refreshed token is picked up
+        without reconfiguring. Return <code>null</code> to send no <code>Authorization</code> header.
+      </p>
+
+      <h3>2 — Play by UUID</h3>
+      <div class="code">
+        <div class="code-lang">dart</div>
+<pre><code>final controller = await ESitePlayerController.forVideo(
+  '4c2f5fdd-d88e-4d2b-b03d-039edef920a7',
+  options: const ESitePlaybackOptions(
+    autoPlay: true,
+    preventScreenRecording: true,
+    primaryColor: Color(0xFF6C63FF),
+    secondaryColor: Colors.white,
+  ),
+);
+
+controller.stateStream.listen((state) {
+  if (state == ESitePlayerState.completed) {
+    <span class="cm">// Watched to the end.</span>
+  } else if (state == ESitePlayerState.closed) {
+    <span class="cm">// Dismissed early.</span>
+  }
+});
+
+controller.errorStream.listen((e) =&gt; report(e.message));
+
+await controller.launchPlayer();</code></pre>
+      </div>
+      <p>
+        Call <code>controller.dispose()</code> when you are finished. A controller is bound to one
+        video — play another by creating a new one.
+      </p>
+
+      <h3>3 — Handle resolution failures</h3>
+      <div class="code">
+        <div class="code-lang">dart</div>
+<pre><code>try {
+  final controller = await ESitePlayerController.forVideo(videoId);
+  await controller.launchPlayer();
+} on ESitePlayerException catch (e) {
+  switch (e.code) {
+    case ESitePlayerErrorCode.unauthorized:
+      await auth.refresh();
+    case ESitePlayerErrorCode.videoNotReady:
+      showMessage('Still processing — try again shortly.');
+    case ESitePlayerErrorCode.unsupportedOnPlatform:
+      showMessage('This video cannot be played on iOS yet.');
+    default:
+      showMessage(e.message);
+  }
+}</code></pre>
+      </div>
+    </section>
+
+    <section id="backend">
+      <p class="eyebrow">Integrate</p>
+      <h2>What your backend must return</h2>
+
+      <p>
+        By default the plugin expects the eSITE <code>videoDetail</code> shape, so a backend that
+        <strong>proxies the eSITE response straight through needs no mapping code.</strong>
+      </p>
+
+      <div class="code">
+        <div class="code-lang">json · lite or plain</div>
+<pre><code>{
+  "id": "4c2f5fdd-d88e-4d2b-b03d-039edef920a7",
+  "name": "Sample",
+  "status": "ready",
+  "drm_type": "lite",
+  "playback_url": "https://…/master.m3u8?token=…",
+  "renditions": []
+}</code></pre>
+      </div>
+
+      <p>
+        For <strong>full DRM</strong>, eSITE never returns license material — the spec is explicit
+        that “DRM key material is never returned” — so your backend must enrich the response:
+      </p>
+
+      <div class="code">
+        <div class="code-lang">json · full drm</div>
+<pre><code>{
+  "drm_type": "full",
+  "playback_url": "https://…/manifest.mpd?token=…",
+  "license_server_url": "https://…/widevine",
+  "entitlement_message": "…",
+  "license_header_name": "X-Entitlement-Message"
+}</code></pre>
+      </div>
+
+      <p>
+        <code>license_header_name</code> is optional and defaults to
+        <code>X-Entitlement-Message</code>. A nested form is accepted too:
+      </p>
+
+      <div class="code">
+        <div class="code-lang">json · nested form</div>
+<pre><code>{ "drm": { "license_url": "…", "headers": { "Authorization": "Bearer …" } } }</code></pre>
+      </div>
+
+      <div class="note note-info">
+        <p class="note-label">Playback URLs expire</p>
+        <p>
+          The service issues 6-hour tokens on the HLS playback endpoint and 15-minute presigned
+          URLs for renditions and thumbnails. Resolve immediately before playing; never cache or
+          persist a resolved source, which is a bearer credential for the content while valid.
+        </p>
+      </div>
+    </section>
+
+    <section id="mapper">
+      <p class="eyebrow">Integrate</p>
+      <h2>A different response shape</h2>
+
+      <p>If your backend returns something else, supply a mapper:</p>
+
+      <div class="code">
+        <div class="code-lang">dart</div>
+<pre><code>ESitePlayer.configure(
+  baseUrl: 'https://api.myapp.com',
+  tokenProvider: () async =&gt; auth.accessToken,
+  mapper: (json) =&gt; ESiteResolvedSource(
+    url: json['stream_url'] as String,
+    streamFormat: ESiteStreamFormat.hls,
+    drmType: ESiteDrmType.lite,
+    title: json['title'] as String?,
+  ),
+);</code></pre>
+      </div>
+
+      <p>Throwing inside the mapper surfaces as <code>configurationError</code>.</p>
+    </section>
+
+    <section id="control">
+      <p class="eyebrow">Integrate</p>
+      <h2>Playback control</h2>
+
+      <p>
+        The native players already provide full on-screen controls — play/pause, ±10s double-tap
+        seek with a ripple animation, scrubber, and speed, quality and audio-track menus — so most
+        apps never call these. They exist for custom UI and automation.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Method</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>play()</code>, <code>pause()</code></td><td></td></tr>
+            <tr><td><code>seekTo(Duration)</code></td><td>Rejects negatives</td></tr>
+            <tr><td><code>seekForward(Duration)</code>, <code>seekBackward(Duration)</code></td><td>Rejects negatives</td></tr>
+            <tr><td><code>setPlaybackSpeed(double)</code></td><td>Clamped to 0.5–4.0</td></tr>
+            <tr><td><code>setVolume(double)</code></td><td>Clamped to 0.0–1.0</td></tr>
+            <tr><td><code>setMuted(bool)</code>, <code>isMuted()</code>, <code>getVolume()</code></td><td></td></tr>
+            <tr><td><code>getAvailableVideoTracks()</code></td><td>Returns <code>{id, label, width, height, bitrate, frameRate}</code>. iOS needs 15.0+; older versions return an empty list</td></tr>
+            <tr><td><code>setVideoTrack(String)</code></td><td><code>"auto"</code> restores adaptive selection. On iOS this caps the peak bitrate — AVPlayer has no direct variant override</td></tr>
+            <tr><td><code>setSubtitleEnabled(bool)</code>, <code>isSubtitleEnabled()</code></td><td></td></tr>
+            <tr><td><code>hasNext()</code>, <code>next()</code>, <code>hasPrevious()</code>, <code>previous()</code></td><td>Single-item playback — no-ops today</td></tr>
+            <tr><td><code>dispose()</code></td><td>Idempotent</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        With no player on screen these fail with a <code>NO_PLAYER</code>
+        <code>PlatformException</code>; after <code>dispose()</code> they throw
+        <code>StateError</code>.
+      </p>
+    </section>
+
+    <section id="errors">
+      <p class="eyebrow">Integrate</p>
+      <h2>Errors</h2>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Code</th><th>Raised when</th><th>Typical response</th></tr></thead>
+          <tbody>
+            <tr><td><code>unauthorized</code></td><td>Your backend returned 401 or 403</td><td>Refresh the app token and retry</td></tr>
+            <tr><td><code>videoNotFound</code></td><td>Backend returned 404</td><td>Surface “not available”</td></tr>
+            <tr><td><code>videoNotReady</code></td><td>Status is not <code>ready</code> — still transcoding or packaging</td><td>Ask the user to retry shortly</td></tr>
+            <tr><td><code>invalidSource</code></td><td>Ready, but nothing playable has been presigned yet</td><td>Retry; escalate if persistent</td></tr>
+            <tr><td><code>unsupportedOnPlatform</code></td><td>Full DRM on iOS</td><td>Hide the video or offer another rendition</td></tr>
+            <tr><td><code>configurationError</code></td><td><code>configure()</code> not called, or an unreadable response</td><td>Fix the integration — not a runtime condition</td></tr>
+            <tr><td><code>networkError</code></td><td>Backend unreachable or timed out</td><td>Retry with backoff</td></tr>
+            <tr><td><code>drmFailure</code></td><td>License acquisition, provisioning or policy failure</td><td>Check entitlement and license server</td></tr>
+            <tr><td><code>playbackError</code></td><td>Decoder or decoding failure</td><td>Try a lower quality</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Resolution errors include the backend's RFC-7807 <code>detail</code> when present. Make
+        sure your backend does not leak internal details into that field — it reaches the client.
+      </p>
+    </section>
+
+    <section id="api-player">
+      <p class="eyebrow">Reference</p>
+      <h2>ESitePlayer</h2>
+
+      <p>Static entry point for UUID-based playback.</p>
+
+      <div class="sig">static void configure({ required String baseUrl, String videoPath, ESiteTokenProvider? tokenProvider, ESiteVideoMapper? mapper, Map&lt;String, String&gt; headers, Duration timeout })</div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Parameter</th><th>Default</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>baseUrl</code></td><td>—</td><td>Your app's backend. <strong>Not</strong> the eSITE service</td></tr>
+            <tr><td><code>videoPath</code></td><td><code>/videos/{id}/playback</code></td><td>Path template; must contain <code>{id}</code></td></tr>
+            <tr><td><code>tokenProvider</code></td><td><code>null</code></td><td>Async, called per request</td></tr>
+            <tr><td><code>mapper</code></td><td><code>null</code></td><td>Converts a non-<code>videoDetail</code> response</td></tr>
+            <tr><td><code>headers</code></td><td><code>{}</code></td><td>Extra headers on every lookup</td></tr>
+            <tr><td><code>timeout</code></td><td>20 s</td><td>Connect and read timeout</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Throws <code>ArgumentError</code> for an empty <code>baseUrl</code> or a
+        <code>videoPath</code> without <code>{id}</code>.
+      </p>
+
+      <h4>isConfigured · configuration · reset()</h4>
+      <p>
+        <code>configuration</code> throws <code>configurationError</code> if
+        <code>configure()</code> has not run. <code>reset()</code> clears it, for tests.
+        <code>ESitePlayerConfiguration.resolve(videoId, {scheme})</code> fetches and interprets
+        playback info.
+      </p>
+    </section>
+
+    <section id="api-controller">
+      <p class="eyebrow">Reference</p>
+      <h2>ESitePlayerController</h2>
+
+      <div class="sig">static Future&lt;ESitePlayerController&gt; forVideo(String videoId, { ESitePlaybackOptions options })</div>
+      <p>
+        Resolves the video, checks it is playable on this platform, and returns a ready
+        controller. Throws <code>ESitePlayerException</code>.
+      </p>
+
+      <div class="sig">ESitePlayerController(ESitePlayerConfig config)</div>
+      <p>Direct construction, for callers that already hold a manifest URL.</p>
+
+      <h3>Streams</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Getter</th><th>Type</th></tr></thead>
+          <tbody>
+            <tr><td><code>stateStream</code></td><td><code>Stream&lt;ESitePlayerState&gt;</code></td></tr>
+            <tr><td><code>drmStream</code></td><td><code>Stream&lt;ESiteDrmEvent&gt;</code></td></tr>
+            <tr><td><code>errorStream</code></td><td><code>Stream&lt;ESitePlayerError&gt;</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        All broadcast. <code>currentState</code> holds the latest state; <code>config</code> holds
+        the resolved configuration. See <a href="#control">Playback control</a> for the methods.
+      </p>
+    </section>
+
+    <section id="api-config">
+      <p class="eyebrow">Reference</p>
+      <h2>Configuration types</h2>
+
+      <h3>ESitePlaybackOptions</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Field</th><th>Default</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>autoPlay</code></td><td><code>false</code></td><td></td></tr>
+            <tr><td><code>preventScreenshots</code></td><td><code>false</code></td><td>Android only — iOS cannot block screenshots</td></tr>
+            <tr><td><code>preventScreenRecording</code></td><td><code>false</code></td><td><code>FLAG_SECURE</code> on Android; capture detection on iOS</td></tr>
+            <tr><td><code>primaryColor</code></td><td><code>null</code></td><td>Progress bar, scrubber, buffering indicator</td></tr>
+            <tr><td><code>secondaryColor</code></td><td><code>null</code></td><td>Transport and menu buttons</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>ESitePlayerConfig</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Field</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>sourceUrl</code></td><td>Manifest URL</td></tr>
+            <tr><td><code>drm</code></td><td><code>ESiteDrmConfig?</code> — <strong>null</strong> for unprotected and Lite DRM</td></tr>
+            <tr><td><code>streamFormat</code></td><td><code>hls</code>, <code>dash</code> or <code>auto</code></td></tr>
+            <tr><td><code>headers</code></td><td>Applied to manifest, segment and key requests</td></tr>
+            <tr><td><code>title</code></td><td>Shown in the player's top bar</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <code>ESitePlayerConfig.fromResolved(source, options)</code> combines a resolved source
+        with presentation options.
+      </p>
+
+      <h3>ESiteDrmConfig</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Field</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>licenseUrl</code></td><td>License request / CKC endpoint</td></tr>
+            <tr><td><code>scheme</code></td><td><code>widevine</code> or <code>fairplay</code></td></tr>
+            <tr><td><code>licenseHeaders</code></td><td>Typically the entitlement token</td></tr>
+            <tr><td><code>certificateUrl</code></td><td>FairPlay application certificate; ignored for Widevine</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="api-resolution">
+      <p class="eyebrow">Reference</p>
+      <h2>Resolution types</h2>
+
+      <h4>ESiteDrmType</h4>
+      <p>
+        <code>none</code>, <code>lite</code>, <code>full</code>.
+        <code>parseDrmType(String?)</code> parses case-insensitively and falls back to
+        <code>none</code> for unknown values — the service's spec types <code>drm_type</code> as a
+        bare string with no enum, so an unrecognised value must degrade safely.
+      </p>
+
+      <h4>ESiteResolvedSource</h4>
+      <p><code>url</code>, <code>streamFormat</code>, <code>drmType</code>, <code>drm?</code>, <code>headers?</code>, <code>title?</code>.</p>
+
+      <h4>ESiteVideoDetail</h4>
+      <p>
+        Mirrors <code>manager.videoDetail</code>: <code>id</code>, <code>name</code>,
+        <code>status</code>, <code>drmType</code>, <code>playbackUrl</code>,
+        <code>thumbnailUrl</code>, <code>renditions</code>, plus <code>raw</code> for
+        backend-specific fields. <code>isReady</code> treats a null status as ready;
+        <code>bestRendition</code> picks the highest-resolution rendition with a packaged URL.
+      </p>
+
+      <h4>ESitePlaybackResolver</h4>
+      <p>Pure and platform-agnostic, so it is fully unit-testable:</p>
+      <ul>
+        <li>not ready → <code>videoNotReady</code></li>
+        <li><code>none</code> / <code>lite</code> → HLS, no DRM, no headers</li>
+        <li><code>full</code> → DASH plus a license descriptor, falling back to the best rendition when <code>playback_url</code> is absent</li>
+      </ul>
+    </section>
+
+    <section id="api-events">
+      <p class="eyebrow">Reference</p>
+      <h2>Events</h2>
+
+      <h3>ESitePlayerState</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>State</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>idle</code></td><td>Nothing loaded</td></tr>
+            <tr><td><code>initializing</code></td><td>Player created, media being prepared</td></tr>
+            <tr><td><code>buffering</code></td><td>Waiting on data</td></tr>
+            <tr><td><code>ready</code></td><td>Ready to play</td></tr>
+            <tr><td><code>playing</code> / <code>paused</code></td><td>Transport state</td></tr>
+            <tr><td><code>completed</code></td><td>The media reached its end</td></tr>
+            <tr><td><code>error</code></td><td>Playback failed</td></tr>
+            <tr><td><code>closed</code></td><td>The player was dismissed</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <code>completed</code> and <code>closed</code> are distinct: one means watched to the end,
+        the other abandoned. Earlier versions conflated them.
+      </p>
+
+      <h3>ESiteDrmEvent</h3>
+      <p>
+        <code>licenseRequested</code>, <code>licenseAcquired</code> or
+        <code>licenseFailed</code>, with an optional message. Only emitted for full DRM —
+        Lite DRM opens no session, so silence on this stream is expected and correct.
+      </p>
+
+      <div class="note note-info">
+        <p class="note-label">Wire contract</p>
+        <p>
+          State, DRM and error values cross the platform channel as <strong>enum ordinals</strong>
+          shared with the native players. Append new values only — reordering silently breaks the
+          native contract.
+        </p>
+      </div>
+    </section>
+
+    <section id="security">
+      <p class="eyebrow">Operate</p>
+      <h2>Security</h2>
+
+      <h3>Screenshot and recording protection</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Capability</th><th>Android</th><th>iOS</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Block screenshots</td>
+              <td><span class="chip chip-ok">FLAG_SECURE</span></td>
+              <td><span class="chip chip-no">not possible</span></td>
+            </tr>
+            <tr>
+              <td>Block screen recording</td>
+              <td><span class="chip chip-ok">FLAG_SECURE</span></td>
+              <td><span class="chip chip-warn">hidden while capturing</span></td>
+            </tr>
+            <tr>
+              <td>Block mirroring / AirPlay capture</td>
+              <td><span class="chip chip-ok">FLAG_SECURE</span></td>
+              <td><span class="chip chip-warn">hidden while capturing</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Android's <code>FLAG_SECURE</code> is enforced by the window compositor and genuinely
+        prevents capture. iOS offers no equivalent: the plugin observes
+        <code>UIScreen.isCaptured</code> and hides the video layer and pauses playback while
+        capture is active. Screenshots can only be detected <em>after</em> they are taken, never
+        prevented.
+      </p>
+
+      <div class="note note-warn">
+        <p class="note-label">Set expectations honestly</p>
+        <p>
+          Do not present iOS screenshot protection as equivalent to Android's. If your content
+          genuinely requires it, iOS cannot deliver it at any layer, and no plugin can change that.
+        </p>
+      </div>
+
+      <h3>What Lite DRM does and does not protect</h3>
+      <p>
+        Lite DRM protects content in transit and at rest in storage. It is not a DRM system: the
+        key reaches the player in the clear over TLS, with no device binding, no output protection
+        and no revocation. Use it where the threat model is casual copying, not determined
+        extraction. Full DRM adds device binding, security-level enforcement and revocation.
+      </p>
+
+      <h3>Transport</h3>
+      <p>
+        All playback and license traffic must be HTTPS. Android surfaces cleartext attempts as
+        <code>networkError</code>; iOS App Transport Security does the same. Do not add cleartext
+        exemptions to make a staging environment work — terminate TLS there instead.
+      </p>
+    </section>
+
+    <section id="testing">
+      <p class="eyebrow">Operate</p>
+      <h2>Testing</h2>
+
+      <div class="code">
+        <div class="code-lang">bash</div>
+<pre><code>flutter analyze                  <span class="cm"># plugin + example</span>
+flutter test                     <span class="cm"># resolver, HTTP client, configuration</span>
+cd example &amp;&amp; flutter test       <span class="cm"># example UI smoke tests</span>
+
+cd example &amp;&amp; flutter build apk --debug              <span class="cm"># compiles the Kotlin</span>
+cd example &amp;&amp; flutter build ios --simulator --debug  <span class="cm"># compiles the Swift</span></code></pre>
+      </div>
+
+      <p>
+        There is <strong>no gradle wrapper</strong> in <code>android/</code> — build the Android
+        side through Flutter, not <code>./gradlew</code>.
+      </p>
+
+      <h3>The stub backend</h3>
+      <p>
+        The example app ships a stub backend (<code>example/lib/stub_backend.dart</code>) that
+        serves <code>videoDetail</code>-shaped responses over loopback, so it runs with no
+        credentials and no server of your own. It covers lite, plain, full-DRM, not-ready,
+        no-playback-URL, not-found and unauthorized paths.
+      </p>
+      <p>
+        The stub cannot mint a presigned URL — that happens server-side behind the tenant API key.
+        To exercise genuine Lite DRM decryption, fetch a real <code>playback_url</code> once and
+        paste it into <code>_placeholderHls</code> in <code>example/lib/main.dart</code>.
+      </p>
+    </section>
+
+    <section id="troubleshooting">
+      <p class="eyebrow">Operate</p>
+      <h2>Troubleshooting</h2>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Black screen, audio plays</td>
+              <td>Content rendered through a texture rather than a native surface</td>
+              <td>Expected only if you bypassed the plugin's native screen — playback must run in the provided Activity / view controller</td>
+            </tr>
+            <tr>
+              <td><code>configurationError</code> on first play</td>
+              <td><code>ESitePlayer.configure()</code> never ran</td>
+              <td>Call it before <code>runApp()</code></td>
+            </tr>
+            <tr>
+              <td>Playback works, then fails hours later</td>
+              <td>The 6-hour playback token expired</td>
+              <td>Resolve immediately before playing; do not cache the source</td>
+            </tr>
+            <tr>
+              <td>HLS URL treated as progressive media</td>
+              <td>URL has no <code>.m3u8</code> suffix because of query tokens</td>
+              <td>Already handled — the plugin declares the format rather than sniffing it. Set <code>streamFormat</code> explicitly if constructing a config by hand</td>
+            </tr>
+            <tr>
+              <td><code>NO_PLAYER</code> PlatformException</td>
+              <td>A transport method was called with no player on screen</td>
+              <td>Call <code>launchPlayer()</code> first, or guard on <code>currentState</code></td>
+            </tr>
+            <tr>
+              <td>No DRM events for an encrypted video</td>
+              <td>It is Lite DRM</td>
+              <td>Correct behaviour — AES-128 opens no DRM session</td>
+            </tr>
+            <tr>
+              <td><code>unsupportedOnPlatform</code> on iOS only</td>
+              <td>Full DRM is DASH + Widevine</td>
+              <td>Awaiting FairPlay packaging from the backend</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="limits">
+      <p class="eyebrow">Operate</p>
+      <h2>Known limitations</h2>
+
+      <ul>
+        <li><strong>Full DRM does not play on iOS.</strong> Pending FairPlay HLS packaging from the video service.</li>
+        <li><strong>iOS cannot block screenshots.</strong> No API exists at any layer.</li>
+        <li><strong>No live API response has been observed.</strong> Every eSITE endpoint returns 401 without the tenant key, so the <code>drm_type</code> string values are inferred from the OpenAPI description text. Parsing is deliberately tolerant.</li>
+        <li><strong>The full-DRM license descriptor is not yet fixed.</strong> The resolver accepts both a flat and a nested shape; the backend team needs to settle on one.</li>
+        <li><strong>The spec contradicts itself on <code>playback_url</code> for full-DRM videos</strong> — the endpoint description calls it a presigned DASH entry point, the field doc says it is null and to use rendition URLs. The resolver accepts either.</li>
+        <li><strong>No Swift Package Manager support yet.</strong> CocoaPods only; Flutter emits a warning.</li>
+        <li><strong>Playlists are single-item.</strong> <code>next()</code> / <code>previous()</code> are no-ops.</li>
+      </ul>
+    </section>
+
+    <footer>
+      eSITE Flutter Player v0.3.0 · Android (Media3 ExoPlayer) and iOS (AVPlayer) ·
+      See <code>CHANGELOG.md</code> for release notes and <code>TEST_PLAN.md</code> for the
+      manual test matrix.
+    </footer>
+  </main>
+</div>
