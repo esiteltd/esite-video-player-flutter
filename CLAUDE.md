@@ -4,77 +4,89 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Flutter plugin for secure DRM-protected video playback on Android. Wraps Android Media3 ExoPlayer with Widevine DRM support (Axinom integration). Android-only currently; iOS is planned.
+Flutter plugin for secure video playback backed by the **eSITE Video Service**. Callers pass a video UUID; the plugin resolves it, determines the protection mode, and plays it in a native fullscreen screen on Android (Media3 ExoPlayer) and iOS (AVPlayer).
 
 - **Package:** `esite_flutter_player`
 - **Dart SDK:** ^3.10.4, Flutter >=3.3.0
-- **Android:** compileSdk 36, minSdk 24, Kotlin 2.2.20, Java 17
+- **Android:** compileSdk 36, minSdk 24, Kotlin 2.2.20, Java 17, Media3 1.2.1
+- **iOS:** deployment target 13.0, Swift 5
 
 ## Common Commands
 
 ```bash
-# Analyze Dart code (linting)
-flutter analyze
-
-# Run Dart tests
-flutter test
-
-# Run example app on connected device (physical device needed for DRM)
-cd example && flutter run
-
-# Run Android native unit tests
-cd android && ./gradlew test
-
-# Get dependencies
-flutter pub get
-cd example && flutter pub get
+flutter analyze                       # lint the plugin and the example
+flutter test                          # plugin unit tests (resolver, API client, config)
+cd example && flutter test            # example UI smoke tests
+cd example && flutter build apk --debug            # compiles the Kotlin
+cd example && flutter build ios --simulator --debug # compiles the Swift
+cd example && flutter run             # physical device needed for full DRM
 ```
+
+There is **no gradle wrapper** in `android/` or `example/android/` — build the Android side through Flutter, not `./gradlew`.
 
 ## Architecture
 
-### Native Activity Approach
-
-Playback happens in a dedicated native Android `PlayerActivity` (not a Flutter PlatformView). This is required because Widevine L1 DRM needs a `SurfaceView` directly on the native window — Flutter's texture-based PlatformView compositing breaks the secure video path, causing a black screen on physical devices.
-
-### Dart ↔ Android Communication
+### Auth topology
 
 ```
-ESitePlayerController (lib/src/controller/)
-    → ESitePlatformPlayer (abstract interface, lib/src/platform/)
-        → ESiteAndroidPlatformPlayer (concrete, lib/src/platform/)
-            → MethodChannel: esite_flutter_player/methods
-            → EventChannel:  esite_flutter_player/events/state
-            → EventChannel:  esite_flutter_player/events/drm
-            → EventChannel:  esite_flutter_player/events/error
-
-EsiteFlutterPlayerPlugin.kt (Android entry point)
-    → PlayerConfigHolder.kt (static config transfer to Activity)
-    → PlayerActivity.kt (fullscreen ExoPlayer + DRM + Media3 controls)
-    → PlayerEventBridge.kt (static singleton relaying events to Flutter sinks)
+Flutter app ──access token──▶ client's own backend ──X-API-Key──▶ eSITE Video Service
+   (plugin)                     (server-to-server)
 ```
 
-### Key Design Patterns
+The plugin never calls the eSITE service directly. The tenant API key stays server-side; the token the plugin sends is between the app and its own backend. Do not reintroduce direct eSITE calls or embedded API keys.
 
-- **Strategy pattern** for platform abstraction — `ESitePlatformPlayer` is the abstract interface, `ESiteAndroidPlatformPlayer` is the Android implementation.
-- **Three separate EventChannels** for state, DRM, and error streams — each exposed as broadcast streams on the controller.
-- **Static event bridge** — `PlayerEventBridge` singleton holds EventChannel sinks; `PlayerActivity` posts events through it on the main thread. Required because the Activity and the Flutter plugin cannot share instance references.
-- **Static config holder** — `PlayerConfigHolder` transfers config in-memory (avoids Intent Bundle serialization limits for large JWT license URLs).
-- **L1→L3 DRM fallback** — `PlayerActivity.buildDrmSessionManager()` attempts Widevine L1 via `FrameworkMediaDrm.setPropertyString("securityLevel", "L1")`, catches failure and falls back to L3.
+### Protection modes
 
-### Android Native Layer
+Driven by `drm_type` in the backend response:
 
-`PlayerActivity.kt` is the core — fullscreen `AppCompatActivity` that creates ExoPlayer, configures DRM sessions, attaches to a `PlayerView` (with `surface_type="surface_view"`), and manages `FLAG_SECURE`. Media3's built-in `PlayerControlView` provides all playback controls (play/pause, seek, settings).
+- **none / lite** → HLS. `lite` is AES-128 encrypted HLS: ExoPlayer and AVPlayer fetch the key from the playlist's key route themselves, so **no DRM session, license server or headers are involved**. Supporting it required only making `drm` optional.
+- **full** → DASH + Widevine on Android. **Not playable on iOS** (AVPlayer does neither DASH nor Widevine); FairPlay packaging is pending on the backend, so `forVideo()` throws `unsupportedOnPlatform`.
 
-State codes sent via `PlayerEventBridge`: idle=0, initializing=1, buffering=2, ready=3, playing=4, paused=5, completed=6, error=7.
+### Native screen, not a PlatformView
 
-### Configuration Flow
+Playback runs in a dedicated Android `Activity` / iOS `UIViewController`. Widevine L1 needs a `SurfaceView` on the native window, and Flutter's texture-based compositing breaks the secure video path (black screen on physical devices). `ESitePlayerView` is a launcher widget, not a video surface.
 
-`ESitePlayerConfig` holds source URL, DRM config, headers, autoplay, and security flags. `ESiteDrmConfig` holds license URL, scheme enum, and license headers. These are serialized to maps, passed over the MethodChannel, stored in `PlayerConfigHolder`, and consumed by `PlayerActivity.onCreate()`.
+### Layout
+
+```
+lib/src/
+  api/        ESitePlayer.configure, HTTP client, videoDetail models, drm_type parsing
+  resolver/   videoDetail -> ESiteResolvedSource (pure, unit-tested)
+  config/     ESitePlayerConfig, ESitePlaybackOptions, ESiteDrmConfig, ESiteStreamFormat
+  controller/ ESitePlayerController (+ forVideo factory)
+  platform/   ESiteMethodChannelPlayer — shared by both platforms
+android/src/main/kotlin/.../  EsiteFlutterPlayerPlugin, PlayerActivity, PlayerEventBridge, PlayerConfigHolder, SeekAnimationView
+ios/Classes/                  EsiteFlutterPlayerPlugin, ESitePlayerViewController, PlayerEventBridge, PlayerConfigHolder, SeekAnimationView, ESiteContentKeyManager
+```
+
+Android and iOS implement **identical** channel names, method names and wire codes, so one Dart `ESiteMethodChannelPlayer` drives both.
+
+### Wire contract
+
+Channels: `esite_flutter_player/methods`, `.../events/state`, `.../events/drm`, `.../events/error`.
+
+State codes: idle=0, initializing=1, buffering=2, ready=3, playing=4, paused=5, completed=6, error=7, **closed=8**.
+Error codes: invalidSource=0, drmFailure=1, networkError=2, playbackError=3, unknown=4 (5–9 are Dart-side resolution errors).
+DRM events: licenseRequested=0, licenseAcquired=1, licenseFailed=2.
+
+These are **enum ordinals**. Append only — reordering silently breaks the native contract.
+
+### Key design patterns
+
+- **Static bridges** — `PlayerEventBridge` and `PlayerConfigHolder` are singletons on both platforms, because the presented screen and the Flutter plugin cannot share instance references. `PlayerActivity.current` / `ESitePlayerViewController.current` route transport commands to the live player.
+- **Pure resolver** — `ESitePlaybackResolver` is platform-agnostic and takes the target `ESiteDrmScheme` as a parameter, so it is fully unit-testable. Platform capability checks live in the controller.
+- **Tolerant parsing** — `drm_type` values are not enumerated in the service's OpenAPI spec, so parsing is case-insensitive with a fallback to `none`. The full-DRM license descriptor accepts both flat and nested shapes.
+
+## Known gaps
+
+- The spec contradicts itself on `playback_url` for full-DRM videos (the endpoint description calls it a presigned DASH entry point; the field doc says it is null and to use rendition URLs). The resolver accepts both.
+- No live API response has ever been observed — every eSITE endpoint returns 401 without the tenant key. `drm_type` string values are inferred from spec prose.
+- The plugin has no Swift Package Manager support yet (CocoaPods only); Flutter warns about this.
 
 ## Linting
 
-Uses `package:flutter_lints/flutter.yaml` with `avoid_print: true` enabled. No public API doc requirement (`public_member_api_docs: false`).
+`package:flutter_lints/flutter.yaml` with `avoid_print: true`. No public API doc requirement (`public_member_api_docs: false`).
 
 ## Testing Notes
 
-DRM playback requires a physical Android device (emulators lack Widevine L1, but L3 fallback works for basic testing). The example app (`example/lib/main.dart`) contains 7 test scenarios covering valid auth, expired tokens, invalid license URLs, missing headers, wrong DRM schemes, and network errors.
+The example app ships a **stub backend** (`example/lib/stub_backend.dart`) serving `videoDetail`-shaped responses, so it runs with no credentials. Full DRM needs a physical Android device. To test real Lite DRM playback, replace `_placeholderHls` in `example/lib/main.dart` with a genuine `playback_url`.

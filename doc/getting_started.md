@@ -1,404 +1,153 @@
-# Getting Started with eSite Flutter Player
+# Getting started
 
-This guide will help you set up and use the eSite Flutter Player for DRM-protected video playback.
-
-## Prerequisites
-
-- Flutter SDK 3.3.0 or higher
-- Android device (physical device recommended for DRM testing)
-- Widevine DRM-protected content URL
-- DRM license server URL and credentials
-
-## Installation
-
-Add `esite_flutter_player` to your `pubspec.yaml`:
+## 1. Add the dependency
 
 ```yaml
 dependencies:
-  esite_flutter_player: ^0.1.0
+  esite_flutter_player: ^0.3.0
 ```
 
-Run:
+Android needs minSdk 24; iOS needs a deployment target of 13.0. Nothing else to configure — the plugin declares its own permissions and registers its native screen.
 
-```bash
-flutter pub get
+## 2. Stand up the backend endpoint
+
+The plugin calls **your** backend, not the eSITE service. Your backend holds the tenant API key and makes the server-to-server call:
+
+```
+GET {your-backend}/videos/{id}/playback
+  Authorization: Bearer <your app's token>
+        │
+        └──▶ GET https://video-service.esite-lab.com/api/v1/videos/{id}
+                 X-API-Key: <tenant key>
 ```
 
-## Android Setup
+The simplest implementation is a pass-through: return the eSITE `videoDetail` response unchanged. The plugin parses that shape natively.
 
-### 1. Permissions
-
-The plugin automatically includes necessary permissions, but ensure your app's `AndroidManifest.xml` has:
-
-```xml
-<uses-permission android:name="android.permission.INTERNET" />
-<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-```
-
-### 2. Minimum SDK
-
-Ensure your `android/app/build.gradle` has:
-
-```gradle
-android {
-    defaultConfig {
-        minSdkVersion 24  // Required for Widevine L1
-    }
+```json
+{
+  "id": "4c2f5fdd-d88e-4d2b-b03d-039edef920a7",
+  "name": "Sample",
+  "status": "ready",
+  "drm_type": "lite",
+  "playback_url": "https://…/master.m3u8?token=…",
+  "renditions": []
 }
 ```
 
-## Basic Usage
+> **Why not call eSITE directly from the app?** The service authenticates with a tenant API key that grants UPLOADER-or-higher access — including upload and delete. An API key shipped in an APK or IPA is extractable. Keeping it server-side is the point of this topology.
 
-### 1. Import the Package
+### Full DRM
+
+eSITE never returns license material (`"DRM key material is never returned"`), so for `drm_type: "full"` your backend must add the license descriptor itself:
+
+```json
+{
+  "drm_type": "full",
+  "playback_url": "https://…/manifest.mpd?token=…",
+  "license_server_url": "https://…/widevine",
+  "entitlement_message": "…",
+  "license_header_name": "X-Entitlement-Message"
+}
+```
+
+`license_header_name` is optional and defaults to `X-Entitlement-Message`. A nested form is also accepted:
+
+```json
+{ "drm": { "license_url": "…", "headers": { "Authorization": "Bearer …" } } }
+```
+
+## 3. Configure the plugin
+
+Once, at app start:
 
 ```dart
 import 'package:esite_flutter_player/esite_flutter_player.dart';
-```
 
-### 2. Create Player Configuration
-
-```dart
-final config = ESitePlayerConfig(
-  sourceUrl: 'https://your-cdn.com/video.mpd',
-  drm: ESiteDrmConfig(
-    licenseUrl: 'https://license.server.com/widevine',
-    scheme: ESiteDrmScheme.widevine,
-    licenseHeaders: {
-      'X-AxDRM-Message': 'your-drm-token',
-    },
-  ),
-  autoPlay: false,
-  preventScreenshots: true,
-  preventScreenRecording: true,
-);
-```
-
-### 3. Initialize Controller
-
-```dart
-class MyPlayerPage extends StatefulWidget {
-  @override
-  State<MyPlayerPage> createState() => _MyPlayerPageState();
-}
-
-class _MyPlayerPageState extends State<MyPlayerPage> {
-  late ESitePlayerController controller;
-
-  @override
-  void initState() {
-    super.initState();
-    controller = ESitePlayerController(config);
-    controller.initialize();
-  }
-
-  @override
-  void dispose() {
-    controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ESitePlayerView(controller: controller);
-  }
+void main() {
+  ESitePlayer.configure(
+    baseUrl: 'https://api.myapp.com',
+    videoPath: '/videos/{id}/playback',   // default
+    tokenProvider: () async => auth.accessToken,
+  );
+  runApp(const MyApp());
 }
 ```
 
-## DRM Setup
+`tokenProvider` runs per request, so token refreshes are picked up automatically. Return `null` to send no `Authorization` header.
 
-### Axinom DRM Configuration
-
-For Axinom DRM, use the following configuration pattern:
+## 4. Play a video
 
 ```dart
-ESiteDrmConfig(
-  licenseUrl: 'https://drm-widevine-licensing.axtest.net/AcquireLicense',
-  scheme: ESiteDrmScheme.widevine,
-  licenseHeaders: {
-    'X-AxDRM-Message': 'your-jwt-token',
-  },
-)
+Future<void> play(String videoId) async {
+  try {
+    final controller = await ESitePlayerController.forVideo(
+      videoId,
+      options: const ESitePlaybackOptions(
+        autoPlay: true,
+        preventScreenRecording: true,
+        primaryColor: Color(0xFF6C63FF),
+        secondaryColor: Colors.white,
+      ),
+    );
+
+    controller.stateStream.listen((state) {
+      if (state == ESitePlayerState.completed) {
+        // Watched to the end.
+      } else if (state == ESitePlayerState.closed) {
+        // Dismissed early.
+      }
+    });
+
+    controller.errorStream.listen((e) => report(e.message));
+
+    await controller.launchPlayer();
+  } on ESitePlayerException catch (e) {
+    switch (e.code) {
+      case ESitePlayerErrorCode.unauthorized:
+        await auth.refresh();
+      case ESitePlayerErrorCode.videoNotReady:
+        showMessage('Still processing — try again shortly.');
+      case ESitePlayerErrorCode.unsupportedOnPlatform:
+        showMessage('This video cannot be played on iOS yet.');
+      default:
+        showMessage(e.message);
+    }
+  }
+}
 ```
 
-### Testing with Axinom Test Content
+Dispose the controller when you are done with it. A controller is bound to one video — play another by creating a new one.
 
-You can use Axinom's public test vectors for development:
+## 5. A backend with a different shape
+
+If your response does not match `videoDetail`, map it:
 
 ```dart
-final config = ESitePlayerConfig(
-  sourceUrl: 'https://media.axprod.net/TestVectors/v7-MultiDRM-SingleKey/Manifest_1080p.mpd',
-  drm: ESiteDrmConfig(
-    licenseUrl: 'https://drm-widevine-licensing.axtest.net/AcquireLicense',
-    scheme: ESiteDrmScheme.widevine,
-    licenseHeaders: {
-      'X-AxDRM-Message': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-    },
+ESitePlayer.configure(
+  baseUrl: 'https://api.myapp.com',
+  tokenProvider: () async => auth.accessToken,
+  mapper: (json) => ESiteResolvedSource(
+    url: json['stream_url'] as String,
+    streamFormat: ESiteStreamFormat.hls,
+    drmType: ESiteDrmType.lite,
+    title: json['title'] as String?,
   ),
 );
 ```
 
-## Security Configuration
+Throwing inside the mapper surfaces as `configurationError`.
 
-### Screenshot and Screen Recording Protection
+## Running the example
 
-Enable content protection to prevent screenshots and screen recording:
-
-```dart
-ESitePlayerConfig(
-  preventScreenshots: true,
-  preventScreenRecording: true,
-  // ... other config
-)
+```bash
+cd example && flutter run
 ```
 
-**Important Notes:**
-- Security is automatically enabled when playback starts
-- Security is disabled when playback pauses or stops
-- This prevents the entire app screen from being captured during playback
-- Only works on Android (iOS support planned)
+It ships a stub backend, so it runs with no credentials. Toggle "Use built-in stub backend" off to point at a real server.
 
-### How FLAG_SECURE Works
+To play genuinely encrypted content, replace `_placeholderHls` in `example/lib/main.dart` with a real `playback_url` obtained from `GET /api/v1/videos/{id}`.
 
-When enabled, the player sets `WindowManager.LayoutParams.FLAG_SECURE` which:
-- Blocks screenshots
-- Blocks screen recording
-- Hides content in recent apps overview
-- Prevents display mirroring in some scenarios
+## Next
 
-## Event Handling
-
-### Listen to Playback States
-
-```dart
-controller.stateStream.listen((state) {
-  switch (state) {
-    case ESitePlayerState.idle:
-      print('Player idle');
-      break;
-    case ESitePlayerState.initializing:
-      print('Initializing...');
-      break;
-    case ESitePlayerState.buffering:
-      print('Buffering...');
-      break;
-    case ESitePlayerState.ready:
-      print('Ready to play');
-      break;
-    case ESitePlayerState.playing:
-      print('Playing');
-      break;
-    case ESitePlayerState.paused:
-      print('Paused');
-      break;
-    case ESitePlayerState.completed:
-      print('Playback completed');
-      break;
-    case ESitePlayerState.error:
-      print('Error occurred');
-      break;
-  }
-});
-```
-
-### Listen to DRM Events
-
-```dart
-controller.drmStream.listen((event) {
-  switch (event.type) {
-    case ESiteDrmEventType.licenseRequested:
-      print('License requested: ${event.message}');
-      break;
-    case ESiteDrmEventType.licenseAcquired:
-      print('License acquired: ${event.message}');
-      break;
-    case ESiteDrmEventType.licenseFailed:
-      print('License failed: ${event.message}');
-      break;
-  }
-});
-```
-
-### Handle Errors
-
-```dart
-controller.errorStream.listen((error) {
-  switch (error.code) {
-    case ESitePlayerErrorCode.invalidSource:
-      showError('Invalid video source');
-      break;
-    case ESitePlayerErrorCode.drmFailure:
-      showError('DRM error: ${error.message}');
-      break;
-    case ESitePlayerErrorCode.networkError:
-      showError('Network error: ${error.message}');
-      break;
-    case ESitePlayerErrorCode.playbackError:
-      showError('Playback error: ${error.message}');
-      break;
-    case ESitePlayerErrorCode.unknown:
-      showError('Unknown error: ${error.message}');
-      break;
-  }
-});
-```
-
-## Advanced Features
-
-### Custom HTTP Headers
-
-Add custom headers for authenticated streams:
-
-```dart
-ESitePlayerConfig(
-  sourceUrl: 'https://your-cdn.com/video.mpd',
-  headers: {
-    'Authorization': 'Bearer your-token',
-    'Custom-Header': 'value',
-  },
-  // ... other config
-)
-```
-
-### Playback Speed Control
-
-```dart
-await controller.setPlaybackSpeed(1.5); // 0.5x to 4.0x
-```
-
-### Volume Control
-
-```dart
-await controller.setVolume(0.8); // 0.0 to 1.0
-await controller.setMuted(true);
-```
-
-### Video Track Selection
-
-```dart
-final tracks = await controller.getAvailableVideoTracks();
-for (var track in tracks) {
-  print('${track['label']}: ${track['width']}x${track['height']}');
-}
-await controller.setVideoTrack(tracks[0]['id']);
-```
-
-### Subtitle Control
-
-```dart
-await controller.setSubtitleEnabled(true);
-final isEnabled = await controller.isSubtitleEnabled();
-```
-
-### Playlist Navigation
-
-```dart
-if (await controller.hasNext()) {
-  await controller.next();
-}
-
-if (await controller.hasPrevious()) {
-  await controller.previous();
-}
-```
-
-## Troubleshooting
-
-### DRM License Acquisition Fails
-
-**Problem:** License acquisition fails with error.
-
-**Solutions:**
-1. Verify license URL is correct
-2. Check license headers (especially X-AxDRM-Message token)
-3. Ensure device has Widevine support
-4. Test on physical device (emulators may not support Widevine L1)
-5. Check network connectivity
-6. Verify token hasn't expired
-
-### Video Doesn't Play
-
-**Problem:** Video doesn't start playing.
-
-**Solutions:**
-1. Check source URL is accessible
-2. Verify DASH manifest is valid (.mpd file)
-3. Monitor error stream for detailed errors
-4. Check DRM configuration
-5. Ensure INTERNET permission is granted
-
-### Black Screen
-
-**Problem:** Player shows black screen.
-
-**Solutions:**
-1. Wait for `ready` state before calling play()
-2. Check if DRM license was acquired successfully
-3. Verify video format is supported
-4. Check if hardware acceleration is enabled
-
-### Screenshot Protection Not Working
-
-**Problem:** Can still take screenshots.
-
-**Solutions:**
-1. Ensure `preventScreenshots: true` is set
-2. Verify playback is actually active (not paused)
-3. Test on different Android versions
-4. Some screen recorders may bypass FLAG_SECURE
-
-### Emulator Issues
-
-**Problem:** DRM content won't play on emulator.
-
-**Reason:** Most Android emulators don't support Widevine L1 security level.
-
-**Solution:** Always test DRM content on physical Android devices.
-
-## Best Practices
-
-1. **Always Dispose Controllers**
-   ```dart
-   @override
-   void dispose() {
-     controller.dispose();
-     super.dispose();
-   }
-   ```
-
-2. **Handle Errors Gracefully**
-   ```dart
-   controller.errorStream.listen((error) {
-     // Show user-friendly error messages
-     // Log errors for debugging
-   });
-   ```
-
-3. **Monitor Playback State**
-   ```dart
-   controller.stateStream.listen((state) {
-     // Update UI based on state
-     // Show loading indicators during buffering
-   });
-   ```
-
-4. **Test on Physical Devices**
-   - DRM requires hardware-backed security
-   - Emulators may not provide full DRM support
-
-5. **Secure Your DRM Tokens**
-   - Never hardcode DRM tokens in production
-   - Fetch tokens from your backend
-   - Implement token refresh logic
-
-## Next Steps
-
-- See [README.md](../README.md) for complete API reference
-- Check [example app](../example/lib/main.dart) for full implementation
-- Review security notes for production deployment
-
-## Support
-
-For issues and questions:
-- GitHub Issues: [Report bugs and feature requests]
-- Documentation: [API Reference](../README.md)
-
+- [API reference](api_reference.md)
+- [Security](security.md)

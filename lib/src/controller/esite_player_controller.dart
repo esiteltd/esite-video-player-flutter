@@ -1,12 +1,17 @@
 import 'dart:async';
 import 'dart:io';
 
+import '../api/esite_drm_type.dart';
+import '../api/esite_player_sdk.dart';
+import '../config/esite_drm_config.dart';
+import '../config/esite_playback_options.dart';
 import '../config/esite_player_config.dart';
 import '../errors/esite_player_error.dart';
 import '../events/esite_drm_event.dart';
 import '../events/esite_player_state.dart';
-import '../platform/esite_android_platform_player.dart';
+import '../platform/esite_method_channel_player.dart';
 import '../platform/esite_platform_player.dart';
+import '../resolver/esite_resolved_source.dart';
 
 class ESitePlayerController {
   final ESitePlayerConfig config;
@@ -24,10 +29,7 @@ class ESitePlayerController {
   StreamSubscription<ESiteDrmEvent>? _drmSubscription;
   StreamSubscription<ESitePlayerError>? _errorSubscription;
 
-  ESitePlayerController(this.config)
-    : _platform = Platform.isAndroid
-          ? ESiteAndroidPlatformPlayer()
-          : throw UnsupportedError('Platform not supported') {
+  ESitePlayerController(this.config) : _platform = _createPlatform() {
     _stateSubscription = _platform.stateStream.listen(_updateState);
     _drmSubscription = _platform.drmStream.listen(_drmController.add);
     _errorSubscription = _platform.errorStream.listen((error) {
@@ -36,24 +38,83 @@ class ESitePlayerController {
     });
   }
 
+  static ESitePlatformPlayer _createPlatform() {
+    if (Platform.isAndroid || Platform.isIOS) {
+      return ESiteMethodChannelPlayer();
+    }
+    throw UnsupportedError(
+      'esite_flutter_player supports Android and iOS only '
+      '(current: ${Platform.operatingSystem}).',
+    );
+  }
+
+  /// Builds a controller for a video UUID.
+  ///
+  /// Asks the configured client backend what the video is, works out whether
+  /// it is unprotected, Lite DRM or full DRM, and prepares the right source —
+  /// the caller never handles manifests or license servers.
+  ///
+  /// Requires [ESitePlayer.configure] to have been called. Throws
+  /// [ESitePlayerException] when the lookup fails, the video is not ready, or
+  /// its protection is unsupported on the current platform.
+  static Future<ESitePlayerController> forVideo(
+    String videoId, {
+    ESitePlaybackOptions options = const ESitePlaybackOptions(),
+  }) async {
+    if (videoId.trim().isEmpty) {
+      throw ESitePlayerException(
+        const ESitePlayerError(
+          code: ESitePlayerErrorCode.configurationError,
+          message: 'videoId must not be empty.',
+        ),
+      );
+    }
+
+    final source = await ESitePlayer.configuration.resolve(
+      videoId,
+      scheme: _platformScheme(),
+    );
+    _assertPlayable(source, videoId);
+
+    return ESitePlayerController(
+      ESitePlayerConfig.fromResolved(source, options),
+    );
+  }
+
+  static ESiteDrmScheme _platformScheme() =>
+      Platform.isIOS ? ESiteDrmScheme.fairplay : ESiteDrmScheme.widevine;
+
+  static void _assertPlayable(ESiteResolvedSource source, String videoId) {
+    // Full DRM is DASH + Widevine. AVPlayer plays neither, and the service
+    // does not package FairPlay HLS yet, so fail with an explanation rather
+    // than a black screen. Lite DRM and plain HLS play fine on both platforms.
+    if (source.drmType == ESiteDrmType.full && Platform.isIOS) {
+      throw ESitePlayerException(
+        ESitePlayerError(
+          code: ESitePlayerErrorCode.unsupportedOnPlatform,
+          message:
+              'Video $videoId uses full DRM, which is not playable on iOS '
+              'yet: it is packaged as DASH + Widevine, and FairPlay HLS '
+              'packaging is not available from the video service.',
+        ),
+      );
+    }
+  }
+
   Stream<ESitePlayerState> get stateStream => _stateController.stream;
   Stream<ESiteDrmEvent> get drmStream => _drmController.stream;
   Stream<ESitePlayerError> get errorStream => _errorController.stream;
 
   Future<void> launchPlayer() async {
-    if (_isDisposed) {
-      throw StateError('Controller has been disposed');
-    }
+    _checkDisposed();
     _updateState(ESitePlayerState.initializing);
     await _platform.launchPlayer(config);
   }
 
   Future<void> initialize() async {
-    if (_isDisposed) {
-      throw StateError('Controller has been disposed');
-    }
+    _checkDisposed();
     _updateState(ESitePlayerState.initializing);
-    await _platform.launchPlayer(config);
+    await _platform.initialize(config);
   }
 
   Future<void> play() async {
@@ -91,27 +152,49 @@ class ESitePlayerController {
   }
 
   Future<void> setPlaybackSpeed(double speed) async {
-    final clampedSpeed = speed.clamp(0.5, 4.0);
-    await _platform.setPlaybackSpeed(clampedSpeed);
+    _checkDisposed();
+    await _platform.setPlaybackSpeed(speed.clamp(0.5, 4.0));
   }
 
   Future<void> setVolume(double volume) async {
-    final clampedVolume = volume.clamp(0.0, 1.0);
-    await _platform.setVolume(clampedVolume);
+    _checkDisposed();
+    await _platform.setVolume(volume.clamp(0.0, 1.0));
   }
 
-  Future<void> setMuted(bool muted) async => _platform.setMuted(muted);
-  Future<bool> isMuted() async => _platform.isMuted();
-  Future<double> getVolume() async => _platform.getVolume();
+  Future<void> setMuted(bool muted) async {
+    _checkDisposed();
+    return _platform.setMuted(muted);
+  }
 
-  Future<List<Map<String, dynamic>>> getAvailableVideoTracks() async =>
-      _platform.getAvailableVideoTracks();
-  Future<void> setVideoTrack(String trackId) async =>
-      _platform.setVideoTrack(trackId);
+  Future<bool> isMuted() async {
+    _checkDisposed();
+    return _platform.isMuted();
+  }
 
-  Future<void> setSubtitleEnabled(bool enabled) async =>
-      _platform.setSubtitleEnabled(enabled);
-  Future<bool> isSubtitleEnabled() async => _platform.isSubtitleEnabled();
+  Future<double> getVolume() async {
+    _checkDisposed();
+    return _platform.getVolume();
+  }
+
+  Future<List<Map<String, dynamic>>> getAvailableVideoTracks() async {
+    _checkDisposed();
+    return _platform.getAvailableVideoTracks();
+  }
+
+  Future<void> setVideoTrack(String trackId) async {
+    _checkDisposed();
+    return _platform.setVideoTrack(trackId);
+  }
+
+  Future<void> setSubtitleEnabled(bool enabled) async {
+    _checkDisposed();
+    return _platform.setSubtitleEnabled(enabled);
+  }
+
+  Future<bool> isSubtitleEnabled() async {
+    _checkDisposed();
+    return _platform.isSubtitleEnabled();
+  }
 
   Future<bool> hasNext() async {
     _checkDisposed();

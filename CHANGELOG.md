@@ -1,3 +1,34 @@
+## 0.3.0
+
+UUID-first playback against the eSITE Video Service, Lite DRM support, and a native iOS player.
+
+### Breaking Changes
+
+* **Play by video UUID.** `ESitePlayer.configure()` + `ESitePlayerController.forVideo(videoId)` replace hand-built manifest and license configuration. `ESitePlayerConfig` remains for advanced callers.
+* **`ESitePlayerConfig.drm` is now nullable.** Unprotected and Lite DRM sources open no DRM session.
+* **Axinom removed.** Playback resolves against the eSITE Video Service via your own backend. `ESiteDrmScheme.playready` was dropped; `fairplay` was added.
+* **`ESitePlayerState.closed` (8) added.** Dismissing the player now reports `closed` instead of `completed`, so a finished video is distinguishable from an abandoned one.
+* New error codes: `videoNotReady`, `unauthorized`, `videoNotFound`, `unsupportedOnPlatform`, `configurationError`. Existing codes keep their ordinals.
+
+### New Features
+
+* **Lite DRM** — AES-128 encrypted HLS. Needs no DRM session, license server or headers on either platform.
+* **Native iOS player** — a fullscreen `UIViewController` backed by `AVPlayerLayer`, mirroring the Android Activity: play/pause, ±10s double-tap seek with the same animation, scrubber, speed/quality/audio menus, error overlay with retry, and theme colours.
+* **Backend-agnostic resolution** — defaults to the eSITE `videoDetail` shape (pass-through backends need no mapping) with an optional `mapper` for other shapes.
+* **Transport methods now work.** `play`, `pause`, `seekTo`, `setVolume`, track and subtitle selection were previously `notImplemented()` on the native side; they are wired on both platforms.
+* **Explicit stream format** — HLS/DASH is declared rather than sniffed from the URL suffix, which token-authenticated playback URLs break.
+
+### Fixes
+
+* **The L1→L3 DRM fallback never worked.** `buildDrmSessionManager()` was dead code — its result was never wired into ExoPlayer, and it leaked an unreleased `FrameworkMediaDrm` per initialisation. Removed; the security level is now read and reported accurately.
+* `licenseFailed` DRM events were emitted for *every* playback error, including network and decoder failures. Now only for actual DRM errors.
+* `licenseAcquired` was reported at initialisation rather than on real key acquisition.
+
+### Known Limitations
+
+* **Full DRM does not play on iOS.** It is packaged as DASH + Widevine; FairPlay HLS packaging is pending on the backend. Such videos fail with `unsupportedOnPlatform`.
+* **iOS cannot block screenshots.** `preventScreenRecording` is enforced by hiding video during capture; screenshots can only be detected, never prevented.
+
 ## 0.2.0
 
 Major architecture overhaul: native Android Activity for DRM playback with YouTube-like UX.
@@ -32,7 +63,7 @@ Initial release of eSite Flutter Player.
 
 ### Features
 
-* **DRM Support**: Widevine DRM playback with Axinom integration
+* **DRM Support**: Widevine DRM playback
 * **Playback Controls**: Play, pause, seek, speed control (0.5x-4x), volume control
 * **Security**: Screenshot and screen recording protection (FLAG_SECURE)
 * **Track Selection**: Video quality selection and subtitle toggle

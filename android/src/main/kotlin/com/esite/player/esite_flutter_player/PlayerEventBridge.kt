@@ -27,10 +27,12 @@ object PlayerEventBridge {
         }
     }
 
+    /**
+     * The player was dismissed. Reported as `closed` (8) rather than
+     * `completed` (6) so Dart can tell a finished video from an abandoned one.
+     */
     fun notifyActivityFinished() {
-        mainHandler.post {
-            sendState(6) // completed
-        }
+        sendState(8)
     }
 
     fun clear() {
