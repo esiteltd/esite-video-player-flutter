@@ -16,7 +16,7 @@ await controller.launchPlayer();
 
 No manifest URLs, no license servers, no DRM branching in your app.
 
-📖 **[Full documentation](doc/index.html)** — open in a browser, or read the Markdown in [`doc/`](doc/).
+📖 **[Full documentation](https://esiteltd.github.io/esite-video-player-flutter/)** — or read the Markdown in [`doc/`](doc/).
 
 ---
 
@@ -367,7 +367,7 @@ Android and iOS implement identical channel names, method names and wire codes, 
 
 ## Documentation
 
-- [Full HTML documentation](doc/index.html)
+- [Full documentation site](https://esiteltd.github.io/esite-video-player-flutter/)
 - [Getting started](doc/getting_started.md)
 - [API reference](doc/api_reference.md)
 - [Security](doc/security.md)
