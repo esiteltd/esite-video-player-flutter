@@ -10,23 +10,20 @@
         android:layout_height="match_parent"
         android:background="#40000000" />
 
-    <!-- Top gradient -->
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="80dp"
-        android:layout_gravity="top"
-        android:background="@drawable/gradient_top" />
-
-    <!-- Top bar: back / close -->
+    <!-- Top bar: back / close.
+         Carries the gradient itself rather than sitting on a fixed-height
+         scrim, so the scrim grows with the window insets applied in
+         PlayerActivity instead of leaving the button on bare video. -->
     <LinearLayout
+        android:id="@+id/controls_top_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
-        android:paddingTop="8dp">
+        android:minHeight="80dp"
+        android:background="@drawable/gradient_top"
+        android:paddingBottom="16dp">
 
         <ImageButton
             android:id="@+id/btn_back"
@@ -99,8 +96,10 @@
 
     </LinearLayout>
 
-    <!-- Bottom controls with gradient -->
+    <!-- Bottom controls with gradient. Horizontal and bottom padding are set
+         from the window insets in PlayerActivity. -->
     <LinearLayout
+        android:id="@+id/controls_bottom_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
@@ -122,18 +121,14 @@
             app:played_color="#FFFFFFFF"
             app:unplayed_color="#33FFFFFF"
             app:buffered_color="#66FFFFFF"
-            app:scrubber_color="#FFFFFFFF"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp" />
+            app:scrubber_color="#FFFFFFFF" />
 
         <!-- Bottom row: time + buttons -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingStart="16dp"
-            android:paddingEnd="8dp">
+            android:gravity="center_vertical">
 
             <TextView
                 android:id="@id/exo_position"

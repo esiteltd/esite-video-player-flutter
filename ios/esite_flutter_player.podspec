@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'esite_flutter_player'
-  s.version          = '0.4.0'
+  s.version          = '0.4.1'
   s.summary          = 'Secure video playback for Flutter, backed by the eSITE Video Service.'
   s.description      = <<-DESC
 Native iOS player for the eSITE Flutter plugin. Plays unprotected and Lite DRM

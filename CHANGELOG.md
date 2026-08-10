@@ -1,3 +1,29 @@
+## 0.4.1
+
+### Fixed
+
+* **Android controls no longer sit under the status bar or against the screen
+  edge.** The plugin targets SDK 36, and Android 15+ enforces edge-to-edge:
+  `setDecorFitsSystemWindows(window, true)` is ignored, so the window always
+  extended under the system bars and the display cutout while the top bar had
+  only a fixed 8dp padding. The back button ended up beneath the status bar on
+  affected devices.
+
+  The control bars are now padded from the real window insets — the union of
+  `systemBars()` and `displayCutout()`, since a hidden bar reports a zero inset
+  while the notch it was covering is still there — plus a 16dp base so nothing
+  sits flush against the edge in immersive mode, plus a rounded-corner
+  allowance from `WindowInsets.getRoundedCorner()` on API 31+.
+
+  The activity also declares `windowLayoutInDisplayCutoutMode="shortEdges"`, so
+  video fills the cutout area while the controls stay clear of it, and it now
+  goes edge to edge on every API level rather than only on the versions that
+  force it — so the layout is identical from API 24 to 36 instead of breaking
+  on new releases.
+
+  iOS was already correct: its bars are constrained to `safeAreaLayoutGuide`,
+  which covers the notch, Dynamic Island and home indicator.
+
 ## 0.4.0
 
 Fullscreen and close controls on both platforms, and a rebuilt native iOS player

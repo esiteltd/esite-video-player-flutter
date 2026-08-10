@@ -20,6 +20,7 @@ import android.widget.PopupMenu
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -73,6 +74,19 @@ class PlayerActivity : AppCompatActivity() {
     private var btnBack: ImageButton? = null
     private var btnFullscreen: ImageButton? = null
 
+    // Containers whose padding is driven by the window insets.
+    private var controlsTopBar: LinearLayout? = null
+    private var controlsBottomBar: LinearLayout? = null
+
+    /**
+     * Breathing room between the controls and the usable edge, on top of
+     * whatever the system insets report. Without it the controls would sit
+     * flush against the screen edge whenever the bars are hidden, since hidden
+     * bars report zero inset.
+     */
+    private val baseEdgePadding: Int
+        get() = (16 * resources.displayMetrics.density).toInt()
+
     /**
      * Whether the screen is currently in the landscape/immersive presentation.
      * Kept in sync with the actual orientation by [onConfigurationChanged], so
@@ -111,6 +125,8 @@ class PlayerActivity : AppCompatActivity() {
         btnQuality = playerView?.findViewById(R.id.btn_quality)
         btnBack = playerView?.findViewById(R.id.btn_back)
         btnFullscreen = playerView?.findViewById(R.id.btn_fullscreen)
+        controlsTopBar = playerView?.findViewById(R.id.controls_top_bar)
+        controlsBottomBar = playerView?.findViewById(R.id.controls_bottom_bar)
 
         // YouTube-like features
         seekAnimationView = findViewById(R.id.seek_animation_view)
@@ -123,6 +139,8 @@ class PlayerActivity : AppCompatActivity() {
         btnQuality?.setOnClickListener { showQualityMenu(it) }
         btnBack?.setOnClickListener { finish() }
         btnFullscreen?.setOnClickListener { setFullscreen(!isFullscreen) }
+
+        applyWindowInsets()
 
         // Adopt whatever orientation the activity opened in rather than forcing
         // one: the button locks the orientation, launching does not.
@@ -510,6 +528,76 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
+    // --- Window insets ---
+
+    /**
+     * Keeps the controls inside the usable area: status and navigation bars,
+     * display cutouts (notch / punch-hole) and rounded corners.
+     *
+     * The window is always laid out edge to edge so the video fills the screen,
+     * including behind a cutout. Android 15 (API 35+) enforces that regardless
+     * of what the activity asks for, so doing it on every API level keeps the
+     * layout identical across versions rather than only breaking on new ones.
+     * The insets are therefore applied as padding on the control bars, not by
+     * shrinking the window.
+     */
+    private fun applyWindowInsets() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        val root = findViewById<View>(R.id.player_root) ?: return
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            // Cutouts are unioned in because a hidden system bar reports a zero
+            // inset while the notch it was covering is still there.
+            val safe = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars()
+                    or WindowInsetsCompat.Type.displayCutout()
+            )
+            val edge = baseEdgePadding
+            val corner = roundedCornerPadding(insets)
+            val left = safe.left + edge + corner
+            val right = safe.right + edge + corner
+
+            controlsTopBar?.let {
+                it.setPadding(left, safe.top + edge, right, it.paddingBottom)
+            }
+            controlsBottomBar?.let {
+                it.setPadding(left, it.paddingTop, right, safe.bottom + edge)
+            }
+            // The overlay's text wants more side room than the control bars do,
+            // so it keeps its 32dp gutter on top of the insets.
+            val overlayGutter = (32 * resources.displayMetrics.density).toInt()
+            errorOverlay?.setPadding(
+                safe.left + overlayGutter,
+                safe.top + overlayGutter,
+                safe.right + overlayGutter,
+                safe.bottom + overlayGutter
+            )
+
+            // Returned unconsumed: the PlayerView subtree may want them too.
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
+    }
+
+    /**
+     * Extra horizontal room for a rounded display.
+     *
+     * A control sitting `r * (1 - 1/√2)` in from a corner of radius `r` clears
+     * the curve; ~0.3r is that bound rounded up. Rounded corners are only
+     * reported from API 31, and are absent on square displays.
+     */
+    private fun roundedCornerPadding(insets: WindowInsetsCompat): Int {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return 0
+        val windowInsets = insets.toWindowInsets() ?: return 0
+        val radius = intArrayOf(
+            android.view.RoundedCorner.POSITION_TOP_LEFT,
+            android.view.RoundedCorner.POSITION_TOP_RIGHT,
+            android.view.RoundedCorner.POSITION_BOTTOM_LEFT,
+            android.view.RoundedCorner.POSITION_BOTTOM_RIGHT
+        ).maxOf { windowInsets.getRoundedCorner(it)?.radius ?: 0 }
+        return (radius * 0.3f).toInt()
+    }
+
     // --- Fullscreen / orientation ---
 
     /**
@@ -541,16 +629,18 @@ class PlayerActivity : AppCompatActivity() {
         applySystemBars()
     }
 
-    /** Immersive (bars hidden, swipe to reveal) in landscape, normal in portrait. */
+    /**
+     * Immersive (bars hidden, swipe to reveal) in landscape, bars visible in
+     * portrait. The layout stays edge to edge either way — [applyWindowInsets]
+     * re-runs on every change and re-pads the controls.
+     */
     private fun applySystemBars() {
         val controller = WindowCompat.getInsetsController(window, window.decorView)
         if (isFullscreen) {
-            WindowCompat.setDecorFitsSystemWindows(window, false)
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             controller.hide(WindowInsetsCompat.Type.systemBars())
         } else {
-            WindowCompat.setDecorFitsSystemWindows(window, true)
             controller.show(WindowInsetsCompat.Type.systemBars())
         }
     }
