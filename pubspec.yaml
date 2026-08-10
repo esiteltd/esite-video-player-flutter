@@ -1,6 +1,6 @@
 name: esite_flutter_player
 description: Secure video playback for Flutter, backed by the eSITE Video Service. Play by video UUID with automatic Lite/Full DRM handling on Android and iOS.
-version: 0.3.0
+version: 0.4.0
 repository: https://github.com/esiteltd/esite-video-player-flutter
 
 environment:

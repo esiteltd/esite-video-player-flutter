@@ -6,10 +6,14 @@ enum ESiteDrmScheme {
   /// Widevine, via ExoPlayer on Android.
   widevine,
 
-  /// FairPlay Streaming, via AVContentKeySession on iOS.
+  /// FairPlay Streaming on iOS. **Not implemented.**
   ///
-  /// Requires the service to package CBCS fMP4 HLS and expose an SPC/CKC
-  /// endpoint plus an application certificate. Not yet available.
+  /// The value exists so full-DRM sources resolve to a scheme rather than
+  /// failing to parse, but the iOS player has no `AVContentKeySession` wiring:
+  /// it rejects any config carrying a `drm` block with `unsupportedOnPlatform`.
+  ///
+  /// Implementing it needs the service to package CBCS fMP4 HLS and expose an
+  /// SPC/CKC endpoint plus an application certificate — pending on the backend.
   fairplay,
 }
 

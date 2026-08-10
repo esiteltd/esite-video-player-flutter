@@ -49,6 +49,10 @@ android {
 
     dependencies {
         implementation "androidx.appcompat:appcompat:1.6.1"
+        // WindowCompat / WindowInsetsControllerCompat for the immersive
+        // fullscreen toggle. Explicit rather than relying on appcompat's
+        // transitive core.
+        implementation "androidx.core:core:1.13.1"
         implementation "androidx.media3:media3-exoplayer:1.2.1"
         implementation "androidx.media3:media3-exoplayer-dash:1.2.1"
         implementation "androidx.media3:media3-exoplayer-hls:1.2.1"

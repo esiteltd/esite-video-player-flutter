@@ -17,6 +17,30 @@
         android:layout_gravity="top"
         android:background="@drawable/gradient_top" />
 
+    <!-- Top bar: back / close -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="8dp">
+
+        <ImageButton
+            android:id="@+id/btn_back"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Close player"
+            android:src="@drawable/ic_arrow_back"
+            android:scaleType="centerInside"
+            android:padding="10dp"
+            app:tint="@android:color/white" />
+
+    </LinearLayout>
+
     <!-- Center transport controls -->
     <LinearLayout
         android:layout_width="wrap_content"
@@ -169,6 +193,17 @@
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="Audio track"
                 android:src="@drawable/ic_audiotrack"
+                android:scaleType="centerInside"
+                android:padding="8dp"
+                app:tint="@android:color/white" />
+
+            <ImageButton
+                android:id="@+id/btn_fullscreen"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Enter fullscreen"
+                android:src="@drawable/ic_fullscreen"
                 android:scaleType="centerInside"
                 android:padding="8dp"
                 app:tint="@android:color/white" />

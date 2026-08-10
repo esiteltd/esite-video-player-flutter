@@ -1,3 +1,52 @@
+## 0.4.0
+
+Fullscreen and close controls on both platforms, and a rebuilt native iOS player
+scoped to the protection modes the video service actually ships.
+
+### New Features
+
+* **Fullscreen button.** Toggles between landscape and portrait and hides or
+  restores the system bars. On Android the rotation does not recreate the
+  Activity, so playback continues across the toggle; on iOS the orientation is
+  pinned through `requestGeometryUpdate` (iOS 16+) and released again on close,
+  so the Flutter screen underneath is never left rotated. Both platforms keep
+  the icon in sync when the device is rotated by hand instead.
+* **Close button.** A back arrow in the top bar dismisses the player and reports
+  `closed` (8), the same as any other dismissal. Replaces the iOS `xmark`.
+
+### iOS Player
+
+Rewritten. Behaviour that was missing rather than merely unpolished:
+
+* **Audio session handling** — a call or another app taking the session pauses
+  playback and resumes only when the system says it should; unplugging
+  headphones pauses instead of switching to the speaker.
+* **Backgrounding** pauses playback, matching Android's `onStop`.
+* **Live streams** are detected and show a LIVE badge instead of a dead
+  scrubber pinned at zero.
+* **Scrubbing** no longer fights the periodic time observer mid-drag, and the
+  controls can no longer auto-hide under your finger.
+* **Buffered range** is drawn behind the scrubber, matching Android's
+  `DefaultTimeBar`.
+* **Retry** no longer tears down the screen-capture, lifecycle and audio-session
+  observers along with the media item — previously one retry silently disabled
+  capture protection for the rest of the session.
+* `AVPlayerItemFailedToPlayToEndTime` is now handled, gradient scrims match the
+  Android drawables, and the status bar follows the fullscreen state.
+
+### Changed
+
+* **Full DRM is rejected explicitly on iOS.** `ESiteContentKeyManager` and its
+  half-wired `AVContentKeySession` seam are removed: a config carrying a `drm`
+  block now fails immediately with `unsupportedOnPlatform` and a
+  `licenseFailed` DRM event, rather than building a player that could only ever
+  error. Lite DRM is unaffected — AES-128 HLS needs no DRM session, so it never
+  went through that path. `ESiteDrmScheme.fairplay` is kept for wire
+  compatibility but is documented as unimplemented pending FairPlay packaging
+  on the video service.
+* Android gains an explicit `androidx.core:core` dependency for the immersive
+  fullscreen APIs, rather than relying on appcompat's transitive copy.
+
 ## 0.3.0
 
 UUID-first playback against the eSITE Video Service, Lite DRM support, and a native iOS player.

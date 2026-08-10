@@ -1,6 +1,8 @@
 package com.esite.player.esite_flutter_player
 
 import android.annotation.SuppressLint
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
@@ -18,6 +20,9 @@ import android.widget.PopupMenu
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
@@ -65,6 +70,16 @@ class PlayerActivity : AppCompatActivity() {
     private var btnSpeed: ImageButton? = null
     private var btnAudio: ImageButton? = null
     private var btnQuality: ImageButton? = null
+    private var btnBack: ImageButton? = null
+    private var btnFullscreen: ImageButton? = null
+
+    /**
+     * Whether the screen is currently in the landscape/immersive presentation.
+     * Kept in sync with the actual orientation by [onConfigurationChanged], so
+     * the icon stays correct when the device is rotated by hand rather than by
+     * the button.
+     */
+    private var isFullscreen: Boolean = false
 
     // YouTube-like features
     private var seekAnimationView: SeekAnimationView? = null
@@ -94,6 +109,8 @@ class PlayerActivity : AppCompatActivity() {
         btnSpeed = playerView?.findViewById(R.id.btn_speed)
         btnAudio = playerView?.findViewById(R.id.btn_audio)
         btnQuality = playerView?.findViewById(R.id.btn_quality)
+        btnBack = playerView?.findViewById(R.id.btn_back)
+        btnFullscreen = playerView?.findViewById(R.id.btn_fullscreen)
 
         // YouTube-like features
         seekAnimationView = findViewById(R.id.seek_animation_view)
@@ -104,6 +121,14 @@ class PlayerActivity : AppCompatActivity() {
         btnSpeed?.setOnClickListener { showSpeedMenu(it) }
         btnAudio?.setOnClickListener { showAudioTrackMenu(it) }
         btnQuality?.setOnClickListener { showQualityMenu(it) }
+        btnBack?.setOnClickListener { finish() }
+        btnFullscreen?.setOnClickListener { setFullscreen(!isFullscreen) }
+
+        // Adopt whatever orientation the activity opened in rather than forcing
+        // one: the button locks the orientation, launching does not.
+        isFullscreen = resources.configuration.orientation ==
+            Configuration.ORIENTATION_LANDSCAPE
+        updateFullscreenUi()
 
         setupDoubleTapGesture()
 
@@ -173,6 +198,8 @@ class PlayerActivity : AppCompatActivity() {
         btnSpeed?.colorFilter = colorFilter
         btnAudio?.colorFilter = colorFilter
         btnQuality?.colorFilter = colorFilter
+        btnBack?.colorFilter = colorFilter
+        btnFullscreen?.colorFilter = colorFilter
 
         // Apply secondary color to center transport buttons
         val playPause = playerView?.findViewById<ImageButton>(
@@ -480,6 +507,62 @@ class PlayerActivity : AppCompatActivity() {
         playerView?.setOnTouchListener { _, event ->
             gestureDetector?.onTouchEvent(event)
             false // CRITICAL: return false so PlayerView handles all touches normally
+        }
+    }
+
+    // --- Fullscreen / orientation ---
+
+    /**
+     * Locks the activity to landscape (fullscreen) or portrait and hides or
+     * restores the system bars to match.
+     *
+     * The manifest declares `configChanges="orientation|screenSize|..."`, so the
+     * rotation does not recreate the activity and playback continues
+     * uninterrupted across the toggle.
+     */
+    private fun setFullscreen(enabled: Boolean) {
+        isFullscreen = enabled
+        requestedOrientation = if (enabled) {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+        }
+        updateFullscreenUi()
+    }
+
+    private fun updateFullscreenUi() {
+        btnFullscreen?.let {
+            it.setImageResource(
+                if (isFullscreen) R.drawable.ic_fullscreen_exit else R.drawable.ic_fullscreen
+            )
+            it.contentDescription = if (isFullscreen) "Exit fullscreen" else "Enter fullscreen"
+            it.colorFilter = PorterDuffColorFilter(secondaryColor, PorterDuff.Mode.SRC_IN)
+        }
+        applySystemBars()
+    }
+
+    /** Immersive (bars hidden, swipe to reveal) in landscape, normal in portrait. */
+    private fun applySystemBars() {
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        if (isFullscreen) {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            WindowCompat.setDecorFitsSystemWindows(window, true)
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Keep the icon and the system bars honest when the device is rotated
+        // by hand rather than through the button.
+        val landscape = newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
+        if (landscape != isFullscreen) {
+            isFullscreen = landscape
+            updateFullscreenUi()
         }
     }
 

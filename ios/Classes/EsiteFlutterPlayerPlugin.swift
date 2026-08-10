@@ -149,10 +149,14 @@ public class EsiteFlutterPlayerPlugin: NSObject, FlutterPlugin {
     /// whatever the app is currently showing.
     private static func topViewController() -> UIViewController? {
         let keyWindow = UIApplication.shared.connectedScenes
+            .filter { $0.activationState == .foregroundActive }
             .compactMap { $0 as? UIWindowScene }
             .flatMap { $0.windows }
             .first { $0.isKeyWindow }
-            ?? UIApplication.shared.windows.first { $0.isKeyWindow }
+            ?? UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap { $0.windows }
+                .first { $0.isKeyWindow }
 
         var controller = keyWindow?.rootViewController
         while let presented = controller?.presentedViewController {
